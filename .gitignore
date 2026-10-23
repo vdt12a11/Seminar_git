@@ -6,3 +6,7 @@ data/admin-password.txt
 data/server-*.log
 __pycache__/
 *.py[cod]
+target/
+*.class
+.idea/workspace.xml
+.vs/

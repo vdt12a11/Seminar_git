@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="1. DEMO - GOOD (DB Chuan)" type="JUnit" factoryName="JUnit">
+    <module name="hotel-booking-dbunit-demo" />
+    <option name="PACKAGE_NAME" value="vn.hotelbooking" />
+    <option name="MAIN_CLASS_NAME" value="vn.hotelbooking.ConstraintAndCrudDbUnitTest" />
+    <option name="METHOD_NAME" value="" />
+    <option name="TEST_OBJECT" value="class" />
+    <option name="VM_PARAMETERS" value="-ea --enable-native-access=ALL-UNNAMED" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dataset>
+    <Payment payment_id="1000" booking_id="100" amount="500000.00"/>
+    <Payment payment_id="1001" booking_id="101" amount="1000000.00"/>
+</dataset>
