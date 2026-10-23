@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dataset>
+    <Booking booking_id="100" guest_id="1" room_id="1" check_in="2026-11-10" check_out="2026-11-12" nights="2" discount_rate="0.0000" total_amount="2000000.00" status="CANCELLED"/>
+    <Booking booking_id="101" guest_id="2" room_id="2" check_in="2026-11-10" check_out="2026-11-13" nights="3" discount_rate="0.1000" total_amount="4050000.00" status="BOOKED"/>
+    <Booking booking_id="102" guest_id="1" room_id="1" check_in="2026-11-10" check_out="2026-11-12" nights="2" discount_rate="0.0000" total_amount="2000000.00" status="BOOKED"/>
+</dataset>

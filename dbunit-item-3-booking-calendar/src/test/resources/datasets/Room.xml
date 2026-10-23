@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dataset>
+    <Room room_id="1" room_number="101" room_type="Standard" price_per_night="1000000.00" active="true"/>
+    <Room room_id="2" room_number="201" room_type="Deluxe" price_per_night="1500000.00" active="true"/>
+    <Room room_id="3" room_number="301" room_type="Standard" price_per_night="1000000.00" active="false"/>
+</dataset>
