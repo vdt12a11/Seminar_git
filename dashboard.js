@@ -36,7 +36,7 @@ function render(data) {
     <td><span class="rank">${group.active || group.bug_count ? String(group.rank).padStart(2, '0') : '—'}</span></td>
     <td><strong>Nhóm ${group.number}</strong></td>
     <td><span class="presence ${group.online ? 'online' : group.active ? 'away' : 'vacant'}">${group.online ? 'Đang làm' : group.active ? 'Mất kết nối · giữ chỗ' : group.bug_count ? 'Đã rời · đã lưu điểm' : 'Chưa chọn'}</span></td>
-    <td><strong>${group.bug_count}</strong> / 12</td><td class="points">${group.score}</td>
+    <td><strong>${group.bug_count}</strong></td><td class="points">${group.score}</td>
     <td>${group.active ? `<button type="button" class="kick-button" data-kick="${group.number}">Kick</button>` : '—'}</td>
   </tr>`).join('');
 }

@@ -6,6 +6,7 @@ SQLite port for the dependency-free classroom game, not an execution of T-SQL.
 import json
 import re
 import sqlite3
+from collections import Counter
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -178,7 +179,8 @@ def witnesses(state):
         other = next((x for x in guests.values() if x['guest_id'] != g['guest_id'] and
                       x['email'].lower() == g['email'].lower()), None)
         if other:
-            out['duplicate_email'][g['guest_id']] = {**g, 'other_id': other['guest_id']}
+            out['duplicate_email'][g['guest_id']] = {**g, 'other_id': other['guest_id'],
+                                                      'other_email': other['email']}
     for room in rooms.values():
         if room['room_type'] not in room_types:
             out['invalid_room_type'][room['room_id']] = room
@@ -285,6 +287,42 @@ def proof_matches(key, record, rows, reads, target):
     }[key]
     if not needed_reads <= set(map(tuple, reads)):
         return False
+    if key == 'duplicate_email':
+        # Accept either a single joined row with other_id, or two rows that
+        # explicitly identify the reported guest and its matching counterpart.
+        for row in rows:
+            if ('guest_id' in row and 'email' in row and 'other_id' in row and
+                    row['guest_id'] == target and row['guest_id'] == record['guest_id'] and
+                    row['email'] == record['email'] and row['other_id'] == record['other_id']):
+                return True
+        if len(rows) != 2 or any(not {'guest_id', 'email'} <= set(row) for row in rows):
+            return False
+        by_id = {row['guest_id']: row for row in rows}
+        if len(by_id) != 2 or set(by_id) != {target, record['other_id']}:
+            return False
+        return (by_id[target]['email'] == record['email'] and
+                by_id[record['other_id']]['email'] == record['other_email'])
+    if key == 'overlap':
+        # As with duplicate values, overlapping rows may be shown as one joined
+        # proof row or as the exact pair of booking rows with their IDs.
+        for row in rows:
+            if (all(field in row for field in fields) and
+                    all(row[field] == record[field] for field in fields) and
+                    row['booking_id'] == target):
+                return True
+        pair_fields = {'booking_id', 'room_id', 'check_in', 'check_out'}
+        if len(rows) != 2 or any(not pair_fields <= set(row) for row in rows):
+            return False
+        by_id = {row['booking_id']: row for row in rows}
+        if len(by_id) != 2 or set(by_id) != {target, record['other_id']}:
+            return False
+        target_row, other_row = by_id[target], by_id[record['other_id']]
+        return (target_row['room_id'] == record['room_id'] and
+                target_row['check_in'] == record['check_in'] and
+                target_row['check_out'] == record['check_out'] and
+                other_row['room_id'] == record['room_id'] and
+                other_row['check_in'] == record['other_check_in'] and
+                other_row['check_out'] == record['other_check_out'])
     for row in rows:
         if not all(field in row for field in fields):
             continue
@@ -317,6 +355,77 @@ def causal_step_valid(key, selected, target):
                 if booking and booking['status'] == 'CANCELLED':
                     return True
     return False
+
+
+def _row_map(state, table):
+    return {row[next(iter(row))]: row for row in state[table]}
+
+
+def _changed_ids(before, after, table):
+    old, new = _row_map(before, table), _row_map(after, table)
+    return {row_id for row_id in old.keys() | new.keys() if old.get(row_id) != new.get(row_id)}
+
+
+def relevant_write_ids(key, target, record, writes_after_boundary):
+    """Return writes touching the reported violation or its aggregate evidence.
+
+    Unrelated experiments are intentionally ignored. Rows needed only as existing
+    foreign-key parents are context, not part of the bug-producing action.
+    """
+    if key in ('invalid_email', 'blank_name'):
+        dependencies = {'Guest': {target}}
+    elif key == 'duplicate_email':
+        dependencies = {'Guest': {target, record['other_id']}}
+    elif key == 'invalid_room_type':
+        dependencies = {'Room': {target}}
+    elif key == 'inactive_room':
+        dependencies = {'Booking': {target}}
+    elif key == 'overlap':
+        dependencies = {'Booking': {target, record['other_id']}}
+    elif key in ('wrong_nights', 'wrong_discount'):
+        dependencies = {'Booking': {target}}
+    elif key == 'wrong_total':
+        dependencies = {'Booking': {target}, 'Room': {record['room_id']}}
+    elif key == 'overpayment':
+        dependencies = {'Payment': None}
+    elif key == 'wrong_status':
+        dependencies = {'Booking': {target}, 'Payment': None}
+    else:  # cancelled_payment
+        dependencies = {'Booking': {record['booking_id']}, 'Payment': {target}}
+
+    relevant = []
+    for step in writes_after_boundary:
+        tables = set(json.loads(step['writes']))
+        before, after = json.loads(step['before_state']), json.loads(step['after_state'])
+        for table, ids in dependencies.items():
+            if table not in tables:
+                continue
+            changed = _changed_ids(before, after, table)
+            if ids is None:
+                if table == 'Payment':
+                    changed = {row_id for row_id in changed if
+                               any(r['payment_id'] == row_id and r['booking_id'] == record.get('booking_id', target)
+                                   for r in after['Payment'] + before['Payment'])}
+                else:
+                    changed = set()
+            if changed & ids if ids is not None else changed:
+                relevant.append(step)
+                break
+    # If the player created the reported booking and had to create its valid guest
+    # first, retain that prerequisite in the submitted chain. Existing parent rows
+    # remain context and unrelated guest inserts are still excluded.
+    booking_id = target if key in ('inactive_room', 'overlap', 'wrong_nights', 'wrong_discount',
+                                   'wrong_total', 'wrong_status') else None
+    if booking_id is not None:
+        booking = next((r for r in json.loads(writes_after_boundary[-1]['after_state'])['Booking']
+                        if r['booking_id'] == booking_id), None)
+        if booking:
+            for step in writes_after_boundary:
+                if 'Guest' in json.loads(step['writes']) and booking['guest_id'] in _changed_ids(
+                        json.loads(step['before_state']), json.loads(step['after_state']), 'Guest'):
+                    if step not in relevant:
+                        relevant.append(step)
+    return relevant
 
 
 def verify_report(store, player, round_no, payload, group_number):
@@ -354,40 +463,49 @@ def verify_report(store, player, round_no, payload, group_number):
         if previous_evidence in history_ids:
             boundary = max(boundary, previous_evidence)
     candidates = [h for h in history if canonical_sql(h['sql']) == evidence_sql and
-                  h['id'] > boundary and
-                  not json.loads(h['writes']) and 'error' not in json.loads(h['result']) and
-                  json.loads(h['result']).get('rows')]
+                  h['id'] > boundary and not json.loads(h['writes']) and
+                  'error' not in json.loads(h['result']) and json.loads(h['result']).get('rows')]
+    # Submitted statements must contain every causally relevant write. Extra
+    # statements are accepted only when they are successful writes in this proof
+    # interval; unrelated experiments do not affect the independent verdict.
     for evidence in reversed(candidates):
-        previous = [h for h in history if boundary < h['id'] < evidence['id'] and json.loads(h['writes']) and
+        interval = [h for h in history if boundary < h['id'] < evidence['id'] and
                     'error' not in json.loads(h['result'])]
-        if len(previous) != len(statements) or not any(json.loads(h['result'])['changes'] > 0 for h in previous):
+        writes = [h for h in interval if json.loads(h['writes']) and
+                  json.loads(h['result']).get('changes', 0) > 0]
+        if not writes:
             continue
-        selected = previous
-        if [canonical_sql(h['sql']) for h in selected] != statements:
-            continue
-        if any(json.loads(h['writes']) for h in history if selected[-1]['id'] < h['id'] < evidence['id']):
-            continue
-        # All writes in the proof interval must be included, in their execution order.
-        if any(h['id'] > selected[0]['id'] and h['id'] < evidence['id'] and json.loads(h['writes']) and
-               h['id'] not in {x['id'] for x in selected} for h in history):
-            continue
-        before = witnesses(json.loads(selected[0]['before_state']))
-        after = witnesses(json.loads(selected[-1]['after_state']))
         at_evidence = witnesses(json.loads(evidence['after_state']))
         rows = json.loads(evidence['result'])['rows']
         reads = json.loads(evidence['reads'])
+        baseline_state = json.loads(interval[0]['before_state']) if interval else json.loads(evidence['before_state'])
         for key, (requirement, title, _) in RULES.items():
-            if requirement != rule or target in before[key] or target not in after[key] or target not in at_evidence[key]:
-                continue
-            # Payment-trigger effects and price edits are explicitly scoped to their cause.
-            relevant = {'overpayment':'Payment','cancelled_payment':'Payment'}.get(key)
-            if relevant and not any(relevant in json.loads(h['writes']) for h in selected):
-                continue
-            if key == 'wrong_total' and 'Booking' not in json.loads(selected[-1]['writes']):
-                continue
-            if not causal_step_valid(key, selected, target):
+            if requirement != rule or target not in at_evidence[key]:
                 continue
             record = at_evidence[key][target]
+            selected = relevant_write_ids(key, target, record, writes)
+            submitted_counts = Counter(statements)
+            required_counts = Counter(canonical_sql(h['sql']) for h in selected)
+            logged_counts = Counter(canonical_sql(h['sql']) for h in interval
+                                    if json.loads(h['writes']) and 'error' not in json.loads(h['result']))
+            if (not selected or any(submitted_counts[sql] < count for sql, count in required_counts.items()) or
+                    any(count > logged_counts[sql] for sql, count in submitted_counts.items())):
+                continue
+            before = witnesses(baseline_state)
+            if target in before[key]:
+                continue
+            # Confirm the violation first appears during this run, then stays visible
+            # in the frozen state captured by the player's SELECT.
+            appeared = False
+            previous_state = baseline_state
+            for step in interval:
+                current_state = json.loads(step['after_state'])
+                if target not in witnesses(previous_state)[key] and target in witnesses(current_state)[key]:
+                    appeared = True
+                    break
+                previous_state = current_state
+            if not appeared or not causal_step_valid(key, interval, target):
+                continue
             if not proof_matches(key, record, rows, reads, target):
                 continue
             observed_field = {
@@ -411,5 +529,5 @@ def verify_report(store, player, round_no, payload, group_number):
                         'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
             return {'verdict':'confirmed','bug_key':key,'title':title,
                     'mutation_ids':[h['id'] for h in selected], 'evidence_id':evidence['id'],
-                    'message':'Chuỗi thao tác và SELECT chứng minh vi phạm đã được đối chiếu. +100 điểm.'}
-    return fail('Chưa khớp chuỗi thao tác và SELECT trong cùng lượt, hoặc kết quả chưa chỉ ra đúng dòng và giá trị vi phạm.')
+                    'message':'Bằng chứng khớp các thao tác liên quan và trạng thái tại thời điểm SELECT. +100 điểm.'}
+    return fail('Không khớp đầy đủ các thao tác liên quan đến lỗi, hoặc SELECT chưa chỉ ra đúng dòng và giá trị vi phạm.')

@@ -144,7 +144,7 @@ $('#history-list').addEventListener('click', e => {
 $('#requirement').addEventListener('change', () => {
   $('#target-label').textContent = 'ID bản ghi hoặc booking';
   $('#observed-label').textContent = 'Giá trị quan sát';
-  $('#evidence-help').textContent = 'Dán toàn bộ thao tác ghi theo đúng thứ tự và một SELECT trả về dòng cùng giá trị vi phạm. Các câu phải có trong nhật ký cùng lượt.';
+  $('#evidence-help').textContent = 'Nộp đủ thao tác ghi liên quan trực tiếp đến lỗi; có thể kèm lệnh ghi khác đã chạy trong cùng lượt. Thứ tự dán không quan trọng. SELECT phải lọc đúng bản ghi liên quan. Khi đối chiếu hai bản ghi cùng loại, có thể trả hai dòng với ID rõ ràng; trường hợp khác cần đủ dữ liệu cần so sánh trên cùng dòng.';
   $('#observed').value = ''; $('#expected').value = ''; $('#report-feedback').textContent = '';
 });
 $('#report-form').addEventListener('submit', async e => {

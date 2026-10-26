@@ -106,7 +106,7 @@ class HotelScoringTests(unittest.TestCase):
                 p.sql(read)
                 outcome = p.report(rule,writes,read,target,observed)
                 self.assertEqual(outcome['verdict'],'confirmed',outcome)
-                self.assertEqual(len(outcome['mutation_ids']),len(writes))
+                self.assertGreaterEqual(len(outcome['mutation_ids']),1)
         self.assertEqual(p.call('/api/state')['score'],len(cases)*100)
 
     def test_missing_step_wrong_value_and_generic_select_rejected(self):
@@ -117,6 +117,8 @@ class HotelScoringTests(unittest.TestCase):
         p.sql(setup); p.sql(mutation); p.sql(proof)
         self.assertEqual(p.report('BR-05',[mutation],proof,3,0)['verdict'],'needs_evidence')
         self.assertEqual(p.report('BR-05',[setup,mutation],proof,3,1)['verdict'],'needs_evidence')
+        unlogged = "INSERT INTO Guest(email,full_name) VALUES ('not-run@example.test','Not Run');"
+        self.assertEqual(p.report('BR-05',[setup,mutation,unlogged],proof,3,0)['verdict'],'needs_evidence')
         self.assertEqual(p.report('BR-05',[setup,mutation],proof,3,0,expected='derive')['verdict'],'needs_evidence')
         generic = 'SELECT * FROM Booking;'
         p.sql(generic)
@@ -177,6 +179,104 @@ class HotelScoringTests(unittest.TestCase):
         self.assertEqual(resumed['score'],100)
         self.assertEqual(len(resumed['discoveries']),1)
         self.assertEqual(p.report('BR-01',[mutation],proof,4,'bad')['verdict'],'duplicate')
+
+    def test_unrelated_writes_are_ignored_and_related_steps_need_not_be_pasted_in_order(self):
+        p = Player(self.base)
+        unrelated = "INSERT INTO Guest(email,full_name) VALUES ('explorer@example.test','Explorer');"
+        first_payment = 'INSERT INTO Payment(booking_id,amount) VALUES (1,1000000);'
+        second_payment = 'INSERT INTO Payment(booking_id,amount) VALUES (1,1300000);'
+        proof = ('SELECT b.booking_id,b.total_amount,sum(p.amount) AS paid_total FROM Booking b '
+                 'JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=1 GROUP BY b.booking_id;')
+        p.sql(unrelated)
+        p.sql(first_payment)
+        p.sql(second_payment)
+        p.sql(proof)
+        accepted = p.report('BR-12',[second_payment,first_payment],proof,1,2800000)
+        self.assertEqual(accepted['verdict'],'confirmed',accepted)
+        self.assertEqual(len(accepted['mutation_ids']),2)
+        self.assertNotIn(1,accepted['mutation_ids'])
+
+    def test_bad_email_report_ignores_unrelated_guest_insert(self):
+        p = Player(self.base)
+        unrelated = "INSERT INTO Guest(email,full_name) VALUES ('explorer@example.test','Explorer');"
+        bad = "INSERT INTO Guest(email,full_name) VALUES ('bad-email','Test Guest');"
+        proof = 'SELECT guest_id,email FROM Guest WHERE email=\'bad-email\';'
+        p.sql(unrelated)
+        p.sql(bad)
+        p.sql(proof)
+        result = p.report('BR-01',[unrelated,bad],proof,5,'bad-email')
+        self.assertEqual(result['verdict'],'confirmed',result)
+        self.assertEqual(len(result['mutation_ids']),1)
+        self.assertNotIn(1,result['mutation_ids'])
+
+    def test_duplicate_email_accepts_two_rows_with_explicit_ids(self):
+        p = Player(self.base)
+        mutation = "INSERT INTO Guest(email,full_name) VALUES ('ANNA@example.test','Duplicate Anna');"
+        p.sql(mutation)
+        generic = 'SELECT * FROM Guest;'
+        p.sql(generic)
+        self.assertEqual(p.report('BR-02',[mutation],generic,4,'ANNA@example.test')['verdict'],'needs_evidence')
+        proof = ("SELECT guest_id,email FROM Guest "
+                 "WHERE email COLLATE NOCASE = 'anna@example.test';")
+        p.sql(proof)
+        result = p.report('BR-02',[mutation],proof,4,'ANNA@example.test')
+        self.assertEqual(result['verdict'],'confirmed',result)
+
+    def test_overlapping_bookings_accept_two_rows_with_explicit_ids(self):
+        p = Player(self.base)
+        mutation = ("INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,"
+                    "discount_rate,total_amount) VALUES ('B-PAIR',2,1,'2026-11-04','2026-11-06',2,0,2000000);")
+        p.sql(mutation)
+        broad = 'SELECT booking_id,room_id,check_in,check_out FROM Booking;'
+        p.sql(broad)
+        self.assertEqual(p.report('BR-08',[mutation],broad,1,3)['verdict'],'needs_evidence')
+        pair = ('SELECT booking_id,room_id,check_in,check_out FROM Booking '
+                'WHERE booking_id IN (1,3);')
+        p.sql(pair)
+        result = p.report('BR-08',[mutation],pair,1,3)
+        self.assertEqual(result['verdict'],'confirmed',result)
+
+    def test_booking_prerequisite_chain_accepts_exact_related_commands(self):
+        p = Player(self.base)
+        guest = "INSERT INTO Guest(email,full_name) VALUES ('four@example.test','Four Guest');"
+        booking = ("INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,"
+                   "discount_rate,total_amount) VALUES ('B-INACTIVE',4,3,'2026-11-10','2026-11-11',1,0,2200000);")
+        proof = 'SELECT b.booking_id,b.room_id,r.active FROM Booking b JOIN Room r ON r.room_id=b.room_id WHERE b.booking_id=3;'
+        p.sql(guest)
+        p.sql(booking)
+        p.sql(proof)
+        result = p.report('BR-05',[booking,guest],proof,3,'0')
+        self.assertEqual(result['verdict'],'confirmed',result)
+        self.assertEqual(len(result['mutation_ids']),2)
+
+    def test_rejects_missing_aggregate_step_wrong_target_and_early_select(self):
+        p = Player(self.base)
+        first = 'INSERT INTO Payment(booking_id,amount) VALUES (1,1000000);'
+        final = 'INSERT INTO Payment(booking_id,amount) VALUES (1,1300000);'
+        proof = ('SELECT b.booking_id,b.total_amount,sum(p.amount) AS paid_total FROM Booking b '
+                 'JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=1 GROUP BY b.booking_id;')
+        p.sql(first)
+        p.sql(proof)  # This snapshot precedes the violation.
+        p.sql(final)
+        p.sql(proof)
+        self.assertEqual(p.report('BR-12',[final],proof,1,2800000)['verdict'],'needs_evidence')
+        self.assertEqual(p.report('BR-12',[first,final],proof,2,2800000)['verdict'],'needs_evidence')
+        self.assertEqual(p.report('BR-12',[first,final],proof,1,2700000)['verdict'],'needs_evidence')
+
+    def test_repaired_before_select_is_rejected_but_select_snapshot_is_preserved(self):
+        p = Player(self.base)
+        bad = "INSERT INTO Guest(email,full_name) VALUES ('bad-email','Bad Guest');"
+        repair = "UPDATE Guest SET email='fixed@example.test' WHERE guest_id=4;"
+        proof = 'SELECT guest_id,email FROM Guest WHERE guest_id=4;'
+        p.sql(bad)
+        p.sql(repair)
+        p.sql(proof)
+        self.assertEqual(p.report('BR-01',[bad,repair],proof,4,'fixed@example.test')['verdict'],'needs_evidence')
+        p.call('/api/reset',{'confirm':'reset'})
+        p.sql(bad)
+        p.sql(proof)
+        p.sql(repair)
+        self.assertEqual(p.report('BR-01',[bad],proof,4,'bad-email')['verdict'],'confirmed')
 
 
 if __name__ == '__main__':
