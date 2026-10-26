@@ -319,18 +319,18 @@ def causal_step_valid(key, selected, target):
     return False
 
 
-def verify_report(store, player, round_no, payload):
+def verify_report(store, player, round_no, payload, group_number):
     def fail(message):
         return {'verdict': 'needs_evidence', 'message': message}
     rule = payload.get('requirement')
     if rule not in {entry[0] for entry in RULES.values()}:
         return fail('Chọn quy tắc nghiệp vụ có lỗi tự động chấm.')
-    already = store.execute("SELECT title FROM reports WHERE player=? AND verdict='confirmed' AND bug_key IN ("+
-        ','.join('?' for _ in RULES)+") ORDER BY id DESC", (player,*RULES.keys())).fetchall()
-    for item in already:
-        if any(req == rule and title == item['title'] for req,title,_ in RULES.values()):
-            return {'verdict':'duplicate','title':item['title'],
-                    'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
+    target_keys = [key for key,(req,_,_) in RULES.items() if req == rule]
+    already = store.execute('SELECT title FROM group_discoveries WHERE group_number=? AND bug_key IN ('+
+        ','.join('?' for _ in target_keys)+') LIMIT 1', (group_number,*target_keys)).fetchone()
+    if already:
+        return {'verdict':'duplicate','title':already['title'],
+                'message':'Nhóm đã được ghi nhận lỗi này; không cộng điểm lần nữa.'}
     expected_by_rule = {'BR-13':'synchronize','BR-07':'derive','BR-10':'derive','BR-11':'derive'}
     if payload.get('expected') != expected_by_rule.get(rule, 'reject'):
         return fail('Chọn kết quả mong đợi theo đặc tả.')
@@ -405,8 +405,8 @@ def verify_report(store, player, round_no, payload):
                 numeric_match = False
             if not (observed == str(actual_value).strip() or numeric_match):
                 continue
-            if store.execute("SELECT 1 FROM reports WHERE player=? AND verdict='confirmed' AND bug_key=?",
-                             (player,key)).fetchone():
+            if store.execute('SELECT 1 FROM group_discoveries WHERE group_number=? AND bug_key=?',
+                             (group_number,key)).fetchone():
                 return {'verdict':'duplicate','title':title,
                         'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
             return {'verdict':'confirmed','bug_key':key,'title':title,

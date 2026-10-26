@@ -10,7 +10,11 @@ Game chạy một bản chuyển có chủ đích của schema SQL Server sang S
 4. `SELECT` phải được chạy trong cùng nhóm/lượt, sau các thao tác ghi, không có ghi xen giữa; kết quả phải chứa ID và các cột cụ thể của dòng vi phạm, với giá trị khớp snapshot server. Server kiểm tra bảng và cột thực sự được đọc. ID, giá trị quan sát và kết quả mong đợi trong form cũng phải khớp.
 5. Mỗi dạng lỗi được tối đa 100 điểm một lần cho mỗi nhóm. Không có ô diễn giải tự do: chuỗi thao tác, `SELECT`, ID, giá trị quan sát và quy tắc đã chọn là toàn bộ bằng chứng được chấm.
 
-Để bắt đầu chuỗi thử nghiệm mới không lẫn các thao tác ghi trước đó, dùng **Nạp lại dữ liệu mẫu**. Nút này giữ điểm đã được xác nhận nhưng thay database và mở lượt mới.
+Để bắt đầu chuỗi thử nghiệm mới không lẫn các thao tác ghi trước đó, dùng **Nạp lại dữ liệu mẫu**. Nút này giữ điểm của nhóm đã được xác nhận nhưng thay database và mở lượt mới. Điểm và danh sách lỗi được lưu theo số nhóm, không phụ thuộc cookie/phiên. Thoát hoặc bị kick chỉ giải phóng chỗ; nhóm vào lại có database sạch, điểm cũ và không thể ghi điểm lại cho cùng bug.
+
+Dashboard có **Reset trạng thái tất cả**. Thao tác này thu hồi mọi phiên đang hoạt động, giải phóng 11 nhóm và xóa điểm cùng báo cáo của ván hiện tại. Lịch sử SQL cũ được giữ trong nhật ký riêng, nhưng người chơi bị thu hồi phiên và không thể dùng lịch sử đó để nộp bằng chứng cho lượt mới.
+
+Khi nâng cấp journal từ phiên bản trước, migration gắn báo cáo cũ với nhóm còn đang được phiên đó giữ. Báo cáo của phiên đã thoát trước lần nâng cấp không có số nhóm lưu kèm nên không thể khôi phục vào bảng điểm; các phát hiện mới sau nâng cấp được lưu bền theo nhóm.
 
 ## Các quy tắc chấm tự động
 

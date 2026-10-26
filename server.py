@@ -32,6 +32,7 @@ ONLINE_SECONDS = 30
 def journal():
     conn = sqlite3.connect(DATA / 'journal.sqlite3')
     conn.row_factory = sqlite3.Row
+    progress_existed = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='group_discoveries'").fetchone()
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, round INTEGER NOT NULL DEFAULT 1);
         CREATE TABLE IF NOT EXISTS history (
@@ -39,11 +40,16 @@ def journal():
             sql TEXT, result TEXT, before_state TEXT, after_state TEXT, reads TEXT, writes TEXT);
         CREATE TABLE IF NOT EXISTS reports (
             id INTEGER PRIMARY KEY, player TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP,
-            payload TEXT, verdict TEXT, message TEXT, bug_key TEXT, title TEXT);
+            payload TEXT, verdict TEXT, message TEXT, bug_key TEXT, title TEXT, group_number INTEGER);
         CREATE TABLE IF NOT EXISTS groups (
             number INTEGER PRIMARY KEY CHECK(number BETWEEN 1 AND 11),
             player TEXT UNIQUE, active INTEGER NOT NULL DEFAULT 0 CHECK(active IN (0, 1)),
             last_seen INTEGER);
+        CREATE TABLE IF NOT EXISTS group_discoveries (
+            group_number INTEGER NOT NULL CHECK(group_number BETWEEN 1 AND 11),
+            bug_key TEXT NOT NULL, report_id INTEGER NOT NULL, title TEXT NOT NULL,
+            created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(group_number, bug_key));
         CREATE TABLE IF NOT EXISTS admin_sessions (token TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     ''')
     if 'kicked' not in {r['name'] for r in conn.execute('PRAGMA table_info(players)')}:
@@ -51,6 +57,16 @@ def journal():
     if 'recovery_code' in {r['name'] for r in conn.execute('PRAGMA table_info(groups)')}:
         conn.execute('UPDATE groups SET recovery_code=NULL WHERE recovery_code IS NOT NULL')
     conn.executemany('INSERT OR IGNORE INTO groups(number) VALUES (?)', [(n,) for n in range(1, 12)])
+    report_columns = {r['name'] for r in conn.execute('PRAGMA table_info(reports)')}
+    if 'group_number' not in report_columns:
+        conn.execute('ALTER TABLE reports ADD COLUMN group_number INTEGER')
+        conn.execute('''UPDATE reports SET group_number=(SELECT number FROM groups WHERE groups.player=reports.player)
+                        WHERE group_number IS NULL''')
+    if not progress_existed:
+        conn.execute('''INSERT OR IGNORE INTO group_discoveries(group_number,bug_key,report_id,title)
+                        SELECT group_number,bug_key,MIN(id),MIN(title) FROM reports
+                        WHERE group_number BETWEEN 1 AND 11 AND verdict='confirmed' AND bug_key IS NOT NULL
+                        GROUP BY group_number,bug_key''')
     conn.commit()
     return conn
 
@@ -59,12 +75,15 @@ def group_for(store, player_id):
     return store.execute('SELECT * FROM groups WHERE player=? AND active=1', (player_id,)).fetchone()
 
 
-def bug_count(store, player_id):
-    return store.execute("SELECT COUNT(DISTINCT bug_key) FROM reports WHERE player=? AND verdict='confirmed'", (player_id,)).fetchone()[0]
+def bug_count(store, group_number):
+    return store.execute('SELECT COUNT(*) FROM group_discoveries WHERE group_number=?',
+                         (group_number,)).fetchone()[0]
 
 
 def group_list(store):
-    return [{'number': row['number'], 'active': bool(row['active'])} for row in store.execute('SELECT number,active FROM groups ORDER BY number')]
+    return [{'number': row['number'], 'active': bool(row['active']),
+             'bug_count': bug_count(store, row['number']), 'score': bug_count(store, row['number']) * 100}
+            for row in store.execute('SELECT number,active FROM groups ORDER BY number')]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -116,7 +135,7 @@ class Handler(BaseHTTPRequestHandler):
         now = int(time.time())
         rows = []
         for group in store.execute('SELECT * FROM groups ORDER BY number'):
-            count = bug_count(store, group['player']) if group['active'] and group['player'] else 0
+            count = bug_count(store, group['number'])
             rows.append({'number': group['number'], 'active': bool(group['active']),
                          'online': bool(group['active'] and group['last_seen'] and now - group['last_seen'] <= ONLINE_SECONDS),
                          'last_seen': group['last_seen'], 'bug_count': count, 'score': count * 100})
@@ -132,14 +151,14 @@ class Handler(BaseHTTPRequestHandler):
         history = store.execute('SELECT * FROM history WHERE player=? AND round=? ORDER BY id',
                                 (self.player, player['round'])).fetchall()
         reports = []
-        for r in store.execute('SELECT * FROM reports WHERE player=? ORDER BY id DESC', (self.player,)):
+        for r in store.execute('SELECT * FROM reports WHERE group_number=? ORDER BY id DESC', (group['number'],)):
             reports.append({'id': r['id'], 'created': r['created'], 'report': json.loads(r['payload']),
                             'verdict': r['verdict'], 'message': r['message'], 'title': r['title']})
         confirmed = [r for r in reports if r['verdict'] == 'confirmed']
         return {'session': self.player[:8].upper(), 'group': group['number'],
                 'round': player['round'], 'schema': schema,
                 'history': [public_history(r) for r in history], 'reports': reports,
-                'discoveries': confirmed, 'score': bug_count(store, self.player) * 100}
+                'discoveries': confirmed, 'score': bug_count(store, group['number']) * 100}
 
     def do_GET(self):
         if self.path == '/api/state':
@@ -174,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path not in ('/api/query', '/api/reports', '/api/reset', '/api/join', '/api/leave', '/api/heartbeat', '/api/new-session',
-                             '/api/admin/login', '/api/admin/logout', '/api/admin/kick'):
+                             '/api/admin/login', '/api/admin/logout', '/api/admin/kick', '/api/admin/reset-all'):
             self.send_error(404)
             return
         if self.headers.get('Sec-Fetch-Site') == 'cross-site':
@@ -215,6 +234,14 @@ class Handler(BaseHTTPRequestHandler):
                         self.admin_cookie = 'query_room_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'
                         self.send_json(200, {'message': 'Đã đăng xuất.'})
                         return
+                    if self.path == '/api/admin/reset-all':
+                        store.execute('UPDATE players SET kicked=1')
+                        store.execute('UPDATE groups SET active=0, player=NULL, last_seen=NULL')
+                        store.execute('DELETE FROM group_discoveries')
+                        store.execute('DELETE FROM reports')
+                        store.commit()
+                        self.send_json(200, self.dashboard_state(store))
+                        return
                     number = payload.get('group')
                     if type(number) is not int or not 1 <= number <= 11:
                         raise ValueError('Chọn nhóm từ 1 đến 11.')
@@ -246,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
                     store.execute('UPDATE players SET kicked=1 WHERE id=?', (self.player,))
                     store.commit()
                     self.clear_player_cookie = True
-                    self.send_json(200, {'message': 'Đã thoát nhóm. Hãy chọn nhóm cho phiên mới.'})
+                    self.send_json(200, {'message': 'Đã thoát nhóm. Điểm đã xác nhận vẫn được giữ cho nhóm này.'})
                     return
                 if self.path == '/api/join':
                     number = payload.get('group')
@@ -277,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
                     store.execute('UPDATE groups SET last_seen=? WHERE number=? AND player=?',
                                   (int(time.time()), group['number'], self.player))
                     store.commit()
-                    count = bug_count(store, self.player)
+                    count = bug_count(store, group['number'])
                     self.send_json(200, {'group': group['number'], 'bug_count': count, 'score': count * 100})
                     return
                 if self.path == '/api/query':
@@ -296,16 +323,20 @@ class Handler(BaseHTTPRequestHandler):
                     store.commit()
                     self.send_json(200, {**result, 'history_id': cursor.lastrowid})
                 elif self.path == '/api/reports':
-                    outcome = verify_report(store, self.player, player['round'], payload)
+                    outcome = verify_report(store, self.player, player['round'], payload, group['number'])
                     saved_payload = {key: payload.get(key) for key in
                                      ('requirement', 'mutation_sql', 'evidence_sql', 'target_id',
                                       'observed', 'expected')}
                     if outcome.get('mutation_ids'):
                         saved_payload['mutation_ids'] = outcome['mutation_ids']
                         saved_payload['evidence_id'] = outcome['evidence_id']
-                    store.execute('''INSERT INTO reports (player,payload,verdict,message,bug_key,title)
-                        VALUES (?,?,?,?,?,?)''', (self.player, json.dumps(saved_payload, ensure_ascii=False),
-                        outcome['verdict'], outcome['message'], outcome.get('bug_key'), outcome.get('title', '')))
+                    cursor = store.execute('''INSERT INTO reports
+                        (player,payload,verdict,message,bug_key,title,group_number)
+                        VALUES (?,?,?,?,?,?,?)''', (self.player, json.dumps(saved_payload, ensure_ascii=False),
+                        outcome['verdict'], outcome['message'], outcome.get('bug_key'), outcome.get('title', ''), group['number']))
+                    if outcome['verdict'] == 'confirmed':
+                        store.execute('''INSERT OR IGNORE INTO group_discoveries(group_number,bug_key,report_id,title)
+                            VALUES (?,?,?,?)''', (group['number'], outcome['bug_key'], cursor.lastrowid, outcome['title']))
                     store.commit()
                     self.send_json(200, outcome)
                 else:

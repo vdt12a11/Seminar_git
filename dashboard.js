@@ -27,15 +27,16 @@ function render(data) {
   $('#login-view').hidden = true;
   $('#dashboard-view').hidden = false;
   $('#logout').hidden = false;
+  $('#reset-all').disabled = false;
   $('#updated-at').textContent = 'Cập nhật: ' + new Date(data.updated_at * 1000).toLocaleTimeString('vi-VN');
   $('#active-count').textContent = data.groups.filter(group => group.active).length;
   $('#online-count').textContent = data.groups.filter(group => group.online).length;
   $('#total-bugs').textContent = data.groups.reduce((sum, group) => sum + group.bug_count, 0);
-  $('#leaderboard-body').innerHTML = data.groups.map(group => `<tr class="${group.active ? '' : 'empty-group'}">
-    <td><span class="rank">${group.active ? String(group.rank).padStart(2, '0') : '—'}</span></td>
+  $('#leaderboard-body').innerHTML = data.groups.map(group => `<tr class="${group.active || group.bug_count ? '' : 'empty-group'}">
+    <td><span class="rank">${group.active || group.bug_count ? String(group.rank).padStart(2, '0') : '—'}</span></td>
     <td><strong>Nhóm ${group.number}</strong></td>
-    <td><span class="presence ${group.online ? 'online' : group.active ? 'away' : 'vacant'}">${group.online ? 'Đang làm' : group.active ? 'Mất kết nối · giữ chỗ' : 'Chưa chọn'}</span></td>
-    <td><strong>${group.bug_count}</strong> / 7</td><td class="points">${group.score}</td>
+    <td><span class="presence ${group.online ? 'online' : group.active ? 'away' : 'vacant'}">${group.online ? 'Đang làm' : group.active ? 'Mất kết nối · giữ chỗ' : group.bug_count ? 'Đã rời · đã lưu điểm' : 'Chưa chọn'}</span></td>
+    <td><strong>${group.bug_count}</strong> / 12</td><td class="points">${group.score}</td>
     <td>${group.active ? `<button type="button" class="kick-button" data-kick="${group.number}">Kick</button>` : '—'}</td>
   </tr>`).join('');
 }
@@ -78,6 +79,19 @@ $('#leaderboard-body').addEventListener('click', async event => {
 $('#logout').addEventListener('click', async () => {
   try { await request('/api/admin/logout', {}); } catch (_) {}
   showLogin();
+});
+
+$('#reset-all').addEventListener('click', async () => {
+  if (!window.confirm('Reset trạng thái tất cả 11 nhóm? Điểm và lỗi đã ghi nhận của ván này sẽ bị xóa, mọi phiên hiện tại sẽ bị ngắt và các nhóm cần chọn lại.')) return;
+  const button = $('#reset-all');
+  button.disabled = true;
+  try {
+    render(await request('/api/admin/reset-all', {}));
+    $('#dashboard-status').textContent = 'Đã reset tất cả nhóm. Điểm và tiến trình của ván mới đã được đặt về 0.';
+  } catch (error) {
+    $('#dashboard-status').textContent = error.message;
+    button.disabled = false;
+  }
 });
 
 refresh();

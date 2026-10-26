@@ -22,13 +22,13 @@ Mở <http://127.0.0.1:8000/>. Nếu server bản demo đang chiếm cổng 8000
 
 Nút **Nạp lại dữ liệu mẫu** mở lượt thử mới và giữ điểm. Nếu muốn thử một ca nhiều bước (ví dụ tạo khách, tạo booking, thêm payment), chạy đủ từng câu trong editor rồi nộp đủ chuỗi trong form. Không được bỏ qua câu tạo dữ liệu nền.
 
-Nút **Thoát nhóm** giải phóng chỗ đang giữ và đưa trình duyệt về trang chọn nhóm. Nhóm được chọn sau đó bắt đầu phiên mới với dữ liệu và điểm riêng; tiến độ phiên cũ không chuyển sang nhóm mới.
+Nút **Thoát nhóm** giải phóng chỗ đang giữ và đưa trình duyệt về trang chọn nhóm. Điểm và lỗi đã xác nhận được lưu theo nhóm; chọn lại nhóm cũ sẽ tiếp tục điểm cũ trên dữ liệu SQL sạch. Các lỗi đã ghi nhận không được cộng điểm lần hai. Thao tác thử SQL và lịch sử riêng của phiên cũ không chuyển sang nhóm mới.
 
 Chi tiết chấm, 12 dạng lỗi tự chấm và giới hạn: [SCORING.md](./SCORING.md). Đặc tả nguồn: [source/business-requirements.md](./source/business-requirements.md).
 
 ## Dashboard
 
-Giáo viên mở `/dashboard`, đăng nhập tên `admin`. Mật khẩu đọc từ `QUERY_ROOM_ADMIN_PASSWORD` hoặc `data/admin-password.txt`; nếu chưa có, server sinh mật khẩu trong file local đó. Dashboard cập nhật mỗi 10 giây, hiển thị điểm server tính từ báo cáo đã xác nhận. Kick giải phóng nhóm và thu hồi phiên cũ. Học viên đã bị kick có nút về trang chọn nhóm, bắt đầu phiên mới.
+Giáo viên mở `/dashboard`, đăng nhập tên `admin`. Mật khẩu đọc từ `QUERY_ROOM_ADMIN_PASSWORD` hoặc `data/admin-password.txt`; nếu chưa có, server sinh mật khẩu trong file local đó. Dashboard cập nhật mỗi 10 giây, hiển thị điểm server tính theo nhóm. Kick giải phóng nhóm và thu hồi phiên cũ nhưng giữ điểm. **Reset trạng thái tất cả** xóa điểm và báo cáo của ván hiện tại, giải phóng cả 11 nhóm và ngắt mọi phiên; các nhóm phải vào lại.
 
 ## Kiểm tra
 

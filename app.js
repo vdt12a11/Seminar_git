@@ -69,12 +69,12 @@ function showGate(data) {
   $('#gate-title').textContent = data.kicked ? 'Phiên đã bị loại' : 'Chọn nhóm của bạn';
   $('#gate-description').textContent = data.kicked
     ? 'Quản trị viên đã loại phiên này khỏi phòng chơi. Liên hệ giáo viên nếu cần hỗ trợ.'
-    : 'Mỗi nhóm từ 1 đến 11 có một phiên điều tra riêng. Nhóm đã có người chơi không thể được chọn lại.';
+    : 'Mỗi nhóm từ 1 đến 11 có một phiên điều tra riêng. Nhóm đang chơi không thể được chọn lại; điểm đã ghi nhận sẽ được giữ khi nhóm vào lại.';
   $('#gate-status').textContent = '';
   if (data.kicked) return;
   const selected = $('#group-select').value;
   $('#group-select').innerHTML = '<option value="">Chọn nhóm…</option>' + data.groups.map(g =>
-    `<option value="${g.number}" ${g.active ? 'disabled' : ''}>Nhóm ${g.number}${g.active ? ' · đã có người chơi' : ' · còn trống'}</option>`).join('');
+    `<option value="${g.number}" ${g.active ? 'disabled' : ''}>Nhóm ${g.number}${g.active ? ' · đang chơi' : ` · còn trống · ${g.bug_count} lỗi đã lưu`}</option>`).join('');
   if (data.groups.some(g => String(g.number) === selected && !g.active)) $('#group-select').value = selected;
 }
 async function refresh() {
@@ -104,7 +104,7 @@ $('#back-to-groups').addEventListener('click', async () => {
   finally { button.disabled = false; }
 });
 $('#leave-group').addEventListener('click', async () => {
-  if (busy || !state || !window.confirm('Thoát nhóm hiện tại và chọn nhóm khác? Dữ liệu, báo cáo và điểm của phiên này không chuyển sang nhóm mới.')) return;
+  if (busy || !state || !window.confirm('Thoát nhóm hiện tại và chọn nhóm khác? Điểm đã ghi nhận vẫn thuộc nhóm hiện tại; dữ liệu SQL của phiên này sẽ kết thúc.')) return;
   setBusy(true);
   try {
     await api('/api/leave', {});
@@ -113,7 +113,7 @@ $('#leave-group').addEventListener('click', async () => {
     updateLines();
     $('#report-form').reset();
     $('#result-caption').textContent = 'Chưa có kết quả';
-    $('#result-body').innerHTML = '<div class="result-message">Đã thoát nhóm. Chọn nhóm khác để bắt đầu phiên mới.</div>';
+    $('#result-body').innerHTML = '<div class="result-message">Đã thoát nhóm. Điểm đã xác nhận vẫn được lưu cho nhóm này.</div>';
     $('#result-meta').textContent = 'PHIÊN MỚI';
     await refresh();
   } catch (error) { $('#connection-status').textContent = error.message; }

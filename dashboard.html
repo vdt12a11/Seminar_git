@@ -20,10 +20,10 @@
       <p id="login-error" class="error" role="alert"></p>
     </section>
     <section id="dashboard-view" hidden>
-      <div class="dashboard-intro"><div><div class="eyebrow">QUERY ROOM <span class="eyebrow-line"></span> LIVE</div><h1>Bảng xếp hạng</h1><p>Điểm được tính từ báo cáo bug đã được server xác nhận. Trang cập nhật mỗi 10 giây.</p></div><div class="dashboard-clock" id="updated-at">Đang tải…</div></div>
+      <div class="dashboard-intro"><div><div class="eyebrow">QUERY ROOM <span class="eyebrow-line"></span> LIVE</div><h1>Bảng xếp hạng</h1><p>Điểm và lỗi đã phát hiện được lưu theo nhóm, kể cả khi nhóm thoát hoặc bị kick. Trang cập nhật mỗi 10 giây.</p></div><div class="dashboard-tools"><button id="reset-all" class="reset-all-button">Reset trạng thái tất cả</button><div class="dashboard-clock" id="updated-at">Đang tải…</div></div></div>
       <div class="dashboard-summary"><div><strong id="active-count">0</strong><span>NHÓM ĐÃ VÀO</span></div><div><strong id="online-count">0</strong><span>ĐANG KẾT NỐI</span></div><div><strong id="total-bugs">0</strong><span>LƯỢT PHÁT HIỆN</span></div></div>
       <div class="leaderboard-wrap"><table class="leaderboard"><thead><tr><th>HẠNG</th><th>NHÓM</th><th>TRẠNG THÁI</th><th>BUG ĐÃ TÌM</th><th>ĐIỂM</th><th>QUẢN LÝ</th></tr></thead><tbody id="leaderboard-body"></tbody></table></div>
-      <p class="dashboard-note">Nhóm ngắt kết nối vẫn giữ chỗ để mở lại phiên sau crash. Nút Kick giải phóng chỗ, đặt trạng thái nhóm về 0 và vô hiệu hóa cookie phiên đó.</p>
+      <p class="dashboard-note">Thoát hoặc Kick giải phóng chỗ nhưng vẫn giữ điểm và lỗi đã ghi nhận của nhóm. Reset tất cả sẽ giải phóng 11 nhóm, xóa điểm của ván hiện tại và yêu cầu mọi nhóm vào lại.</p>
       <p id="dashboard-status" role="status" aria-live="polite"></p>
     </section>
   </main>
