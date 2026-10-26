@@ -10,10 +10,10 @@ import sqlite3
 import threading
 import time
 
-from game import initialize, snapshot, execute_query, verify_report, public_history
+from game import TABLES, initialize, snapshot, execute_query, verify_report, public_history
 
 ROOT = Path(__file__).parent
-DATA = ROOT / 'data' / 'game-v1'
+DATA = ROOT / 'data' / 'hotel-game-v1'
 DATA.mkdir(parents=True, exist_ok=True)
 LOCK = threading.RLock()
 ADMIN_PASSWORD_FILE = ROOT / 'data' / 'admin-password.txt'
@@ -128,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
     def state(self, store, player, group):
         with closing(sqlite3.connect(DATA / f'{self.player}.sqlite3')) as conn:
             schema = [{'name': t, 'columns': [dict(zip(('cid', 'name', 'type', 'notnull', 'dflt_value', 'pk'), c))
-                       for c in conn.execute(f'PRAGMA table_info({t})')]} for t in ('members', 'workshops', 'enrollments')]
+                       for c in conn.execute(f'PRAGMA table_info({t})')]} for t in TABLES]
         history = store.execute('SELECT * FROM history WHERE player=? AND round=? ORDER BY id',
                                 (self.player, player['round'])).fetchall()
         reports = []
@@ -182,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if length < 1 or length > 20000:
+            if length < 1 or length > 40000:
                 raise ValueError('Nội dung yêu cầu không hợp lệ hoặc quá dài.')
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                 raise ValueError('Yêu cầu phải dùng JSON.')
@@ -287,8 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif self.path == '/api/reports':
                     outcome = verify_report(store, self.player, player['round'], payload)
                     saved_payload = dict(payload)
-                    if outcome.get('mutation_id'):
-                        saved_payload['mutation_id'] = outcome['mutation_id']
+                    if outcome.get('mutation_ids'):
+                        saved_payload['mutation_ids'] = outcome['mutation_ids']
                         saved_payload['evidence_id'] = outcome['evidence_id']
                     store.execute('''INSERT INTO reports (player,payload,verdict,message,bug_key,title)
                         VALUES (?,?,?,?,?,?)''', (self.player, json.dumps(saved_payload, ensure_ascii=False),

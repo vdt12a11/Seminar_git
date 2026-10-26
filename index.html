@@ -31,34 +31,42 @@
   <section class="intro">
     <div class="intro-copy"><div class="eyebrow">IN-CLASS ACTIVITY <span class="eyebrow-line"></span> ĐỌC · THỬ · CHỨNG MINH</div>
       <h1>Follow the data.<br><em>Prove the bug.</em></h1>
-      <p>Bạn là người kiểm thử hệ thống đăng ký workshop. Đọc đặc tả, tự thiết kế thử nghiệm và bảo vệ kết luận bằng dữ liệu.</p>
+      <p>Bạn là người kiểm thử hệ thống đặt phòng khách sạn. Đọc đặc tả, tự thiết kế thử nghiệm và bảo vệ kết luận bằng dữ liệu.</p>
     </div>
     <div class="intro-note"><div class="note-index">HỒ SƠ ĐIỀU TRA <span id="round-label">01</span></div><p>Chạy SQL tạo bằng chứng. Nộp báo cáo để xác nhận phát hiện.</p><div class="score"><strong id="score">0</strong><span>ĐIỂM ĐIỀU TRA</span></div></div>
   </section>
   <section class="play-guide" id="activity" aria-label="Cách chơi">
     <div><b>01 / Đọc đặc tả</b><p>Dữ liệu ban đầu hợp lệ. Chọn một quy tắc để tự thiết kế tình huống kiểm thử.</p></div>
-    <div><b>02 / Tạo bằng chứng</b><p>Chạy thao tác ghi, rồi truy vấn đọc để chứng minh kết quả. Mỗi lần chạy một câu SQL.</p></div>
-    <div><b>03 / Nộp kết luận</b><p>Tự nhập lại hai câu lệnh đã chạy, nêu giá trị quan sát và giải thích vi phạm. Mỗi lỗi được xác nhận: 100 điểm.</p></div>
+    <div><b>02 / Tạo bằng chứng</b><p>Chạy từng thao tác theo thứ tự, rồi SELECT đúng dòng vi phạm. Mỗi lần chạy một câu SQL.</p></div>
+    <div><b>03 / Nộp kết luận</b><p>Dán toàn bộ câu thao tác đã chạy trong chuỗi thử nghiệm và một SELECT kiểm chứng. Mỗi lỗi được xác nhận: 100 điểm.</p></div>
   </section>
   <section class="requirements" aria-labelledby="requirements-title">
-    <div class="requirements-head"><div><div class="requirements-kicker">HỒ SƠ NGHIỆP VỤ</div><h2 id="requirements-title">Hệ thống đăng ký workshop</h2><p>Thành viên đăng ký hoặc hủy tham gia workshop. Hệ thống quản lý sức chứa và tự cập nhật số lượng đăng ký.</p></div><span class="tiny-tag">06 QUY TẮC</span></div>
+    <div class="requirements-head"><div><div class="requirements-kicker">HỒ SƠ NGHIỆP VỤ</div><h2 id="requirements-title">Hệ thống đặt phòng khách sạn</h2><p>Dữ liệu mẫu ban đầu hợp lệ. Đối chiếu quy tắc với các bảng Guest, RoomType, Room, Booking và Payment.</p></div><span class="tiny-tag">14 QUY TẮC</span></div>
     <div class="requirements-grid">
-      <article class="requirement-card"><span>REQ-01 · THÀNH VIÊN</span><h3>Tên thành viên</h3><p>Tên bắt buộc, không được rỗng hoặc chỉ chứa khoảng trắng, tối đa 30 ký tự.</p></article>
-      <article class="requirement-card"><span>REQ-02 · THÀNH VIÊN</span><h3>Email thành viên</h3><p>Mỗi thành viên phải có email. Email không được nhận giá trị NULL.</p></article>
-      <article class="requirement-card"><span>REQ-03 · THAM CHIẾU</span><h3>Đăng ký có chủ sở hữu</h3><p>Mỗi đăng ký phải tham chiếu đến thành viên và workshop tồn tại.</p></article>
-      <article class="requirement-card"><span>REQ-04 · ĐĂNG KÝ</span><h3>Mỗi người, một chỗ</h3><p>Một thành viên chỉ được đăng ký một lần cho cùng một workshop.</p></article>
-      <article class="requirement-card"><span>REQ-05 · NHẤT QUÁN</span><h3>Số lượng đăng ký</h3><p>registered_count do hệ thống quản lý, phải bằng số đăng ký thực tế sau khi thêm, sửa hoặc xóa đăng ký.</p></article>
-      <article class="requirement-card"><span>REQ-06 · SỨC CHỨA</span><h3>Giới hạn workshop</h3><p>Số đăng ký thực tế không được vượt capacity. Thao tác làm vượt sức chứa phải bị từ chối.</p></article>
+      <article class="requirement-card"><span>BR-01 · KHÁCH</span><h3>Email hợp lệ</h3><p>Email có dạng local-part@domain, không khoảng trắng, đúng một @ và domain có dấu chấm với hai phần không rỗng.</p></article>
+      <article class="requirement-card"><span>BR-02 · KHÁCH</span><h3>Email duy nhất</h3><p>Hai khách không được có email trùng nhau, không phân biệt chữ hoa và chữ thường.</p></article>
+      <article class="requirement-card"><span>BR-03 · KHÁCH</span><h3>Tên khách</h3><p>Tên bắt buộc và dài 1–100 ký tự sau khi loại bỏ khoảng trắng đầu cuối.</p></article>
+      <article class="requirement-card"><span>BR-04 · PHÒNG</span><h3>Loại phòng</h3><p>Mỗi phòng có số phòng duy nhất và loại phòng thuộc danh mục RoomType.</p></article>
+      <article class="requirement-card"><span>BR-05 · PHÒNG</span><h3>Phòng hoạt động</h3><p>Chỉ phòng đang hoạt động mới được tạo đặt phòng mới.</p></article>
+      <article class="requirement-card"><span>BR-06 · THAM CHIẾU</span><h3>Khách và phòng tồn tại</h3><p>Đặt phòng phải tham chiếu khách và phòng tồn tại.</p></article>
+      <article class="requirement-card"><span>BR-07 · THỜI GIAN</span><h3>Ngày và số đêm</h3><p>Ngày trả sau ngày nhận; số đêm bằng hiệu số ngày.</p></article>
+      <article class="requirement-card"><span>BR-08 · THỜI GIAN</span><h3>Không chồng lấn</h3><p>Cùng phòng không có hai đặt phòng giao nhau; đặt phòng đã huỷ không chiếm phòng. Ngày trả là điểm kết thúc.</p></article>
+      <article class="requirement-card"><span>BR-09 · GIÁ</span><h3>Đơn giá khi đặt</h3><p>Lưu đơn giá mỗi đêm tại thời điểm đặt; đổi giá phòng về sau không đổi giá đã áp dụng và tổng tiền cũ.</p></article>
+      <article class="requirement-card"><span>BR-10 · GIÁ</span><h3>Giảm giá</h3><p>Từ 3 đêm giảm đúng 10%; dưới 3 đêm không giảm. Tỷ lệ nằm trong 0–1.</p></article>
+      <article class="requirement-card"><span>BR-11 · GIÁ</span><h3>Tổng tiền</h3><p>Số đêm × đơn giá khi đặt × (1 − tỷ lệ giảm), làm tròn 2 chữ số thập phân.</p></article>
+      <article class="requirement-card"><span>BR-12 · THANH TOÁN</span><h3>Giới hạn thanh toán</h3><p>Mỗi khoản lớn hơn 0; tổng đã trả không vượt tổng tiền đặt phòng.</p></article>
+      <article class="requirement-card"><span>BR-13 · TRẠNG THÁI</span><h3>Đồng bộ thanh toán</h3><p>Chưa huỷ: PAID khi tổng trả đạt tổng tiền, ngược lại BOOKED; phản ánh cả sửa payment lẫn tổng tiền.</p></article>
+      <article class="requirement-card"><span>BR-14 · HUỶ</span><h3>Không nhận tiền mới</h3><p>Đặt phòng CANCELLED không nhận khoản thanh toán mới và không bị payment đổi trạng thái huỷ.</p></article>
     </div>
   </section>
   <div class="section-toolbar"><h2>Phòng thực nghiệm</h2><button class="secondary" id="reset-data" disabled>Nạp lại dữ liệu mẫu</button></div>
-  <p class="section-note">Bạn có thể đọc, thêm, sửa, xóa dữ liệu thành viên/đăng ký; sửa tên và sức chứa workshop. Cấu trúc bảng, ID hiện có và số đếm hệ thống được bảo vệ. Nạp lại dữ liệu mở lượt mới, giữ điểm và báo cáo cũ.</p>
+  <p class="section-note">Bạn có thể đọc và thao tác dữ liệu Guest, Room, Booking, Payment. RoomType là danh mục tham chiếu. Cấu trúc bảng và ID hiện có được bảo vệ. Đây là bản chuyển sang SQLite từ script SQL Server; dùng cú pháp SQLite. Nạp lại dữ liệu mở lượt mới, giữ điểm.</p>
   <section class="workspace" aria-label="SQL workspace">
     <div class="editor-pane">
       <div class="pane-head"><div><span class="step">01</span><span class="pane-title">SQL EDITOR</span></div><div class="editor-actions"><button class="text-button" id="reset-btn">Xóa editor</button><button class="run-button" id="run-btn" disabled><span>Chạy truy vấn</span><kbd>Ctrl ↵</kbd></button></div></div>
       <div class="editor-wrap"><div class="line-numbers" id="line-numbers">1</div><textarea id="sql-editor" spellcheck="false" aria-label="SQL query editor" autocapitalize="off" autocomplete="off"></textarea></div>
       <div class="editor-foot"><span>SQLite · Một câu lệnh mỗi lần</span><span id="query-hint">Kết quả sẽ được lưu vào nhật ký</span></div>
-      <div class="examples"><span class="examples-label">XEM DỮ LIỆU</span><button data-query="SELECT * FROM members;">Members</button><button data-query="SELECT * FROM workshops;">Workshops</button><button data-query="SELECT * FROM enrollments;">Enrollments</button></div>
+      <div class="examples"><span class="examples-label">XEM DỮ LIỆU</span><button data-query="SELECT * FROM Guest;">Guest</button><button data-query="SELECT * FROM RoomType;">RoomType</button><button data-query="SELECT * FROM Room;">Room</button><button data-query="SELECT * FROM Booking;">Booking</button><button data-query="SELECT * FROM Payment;">Payment</button></div>
       <details class="syntax-help"><summary>Cú pháp SQL cơ bản</summary><pre>SELECT cột FROM bảng WHERE điều_kiện;
 INSERT INTO bảng (cột) VALUES (giá_trị);
 UPDATE bảng SET cột = giá_trị WHERE điều_kiện;
@@ -73,18 +81,18 @@ SELECT ..., COUNT(*) FROM bảng GROUP BY ...;</pre><p>Kiểm tra WHERE trước
     <aside class="bugs-panel"><div class="section-head"><span class="pane-title">BUGS DISCOVERED</span><span class="bug-count" id="bug-count">0 ĐÃ XÁC NHẬN</span></div><p class="bugs-intro">Phát hiện được ghi nhận sau khi báo cáo có bằng chứng hợp lệ.</p><div id="bug-list"></div></aside>
   </section>
   <section class="investigation-grid">
-    <div class="journal-panel"><div class="section-toolbar"><h2>Nhật ký điều tra</h2><span class="tiny-tag" id="history-count">0 LẦN CHẠY</span></div><p class="section-note">Chọn một thao tác gây lỗi và một truy vấn đọc kiểm chứng sau đó. Không chạy thêm thao tác ghi xen giữa hai bằng chứng.</p><div id="history-list" class="history-list"></div></div>
+    <div class="journal-panel"><div class="section-toolbar"><h2>Nhật ký điều tra</h2><span class="tiny-tag" id="history-count">0 LẦN CHẠY</span></div><p class="section-note">Khi nộp, dán mọi câu thao tác ghi của chuỗi thử nghiệm theo đúng thứ tự, rồi dán SELECT sau cùng. Không bỏ qua bước ghi trong chuỗi.</p><div id="history-list" class="history-list"></div></div>
     <div class="report-panel" id="report-panel"><div class="section-toolbar"><h2>Nộp phát hiện</h2><span class="tiny-tag">CHỨNG MINH → GHI NHẬN</span></div>
       <form id="report-form">
-        <label>Yêu cầu bị vi phạm<select id="requirement" required><option value="">Chọn từ hồ sơ nghiệp vụ…</option><option value="REQ-01">REQ-01 — Tên thành viên</option><option value="REQ-02">REQ-02 — Email thành viên</option><option value="REQ-03">REQ-03 — Tham chiếu đăng ký</option><option value="REQ-04">REQ-04 — Đăng ký duy nhất</option><option value="REQ-05">REQ-05 — Số lượng đăng ký</option><option value="REQ-06">REQ-06 — Sức chứa</option></select></label>
-        <label>SQL thao tác bạn đã thực hiện<textarea id="mutation-sql" rows="3" placeholder="Nhập hoặc dán nguyên văn câu INSERT, UPDATE hoặc DELETE bạn đã chạy…" required></textarea></label>
-        <label>SQL bạn dùng để kiểm chứng<textarea id="evidence-sql" rows="3" placeholder="Nhập hoặc dán nguyên văn câu SELECT kiểm tra kết quả…" required></textarea></label>
-        <p class="evidence-help" id="evidence-help">Hai câu SQL phải trùng với các câu đã chạy trong nhật ký phiên này. Bạn tự xác định lệnh nào gây vi phạm và viết truy vấn nào chứng minh kết quả.</p>
+        <label>Yêu cầu bị vi phạm<select id="requirement" required><option value="">Chọn từ hồ sơ nghiệp vụ…</option><option value="BR-01">BR-01 — Email hợp lệ</option><option value="BR-02">BR-02 — Email duy nhất</option><option value="BR-03">BR-03 — Tên khách</option><option value="BR-04">BR-04 — Loại phòng</option><option value="BR-05">BR-05 — Phòng hoạt động</option><option value="BR-07">BR-07 — Số đêm</option><option value="BR-08">BR-08 — Chồng lấn</option><option value="BR-10">BR-10 — Giảm giá</option><option value="BR-11">BR-11 — Tổng tiền</option><option value="BR-12">BR-12 — Thanh toán vượt</option><option value="BR-13">BR-13 — Trạng thái</option><option value="BR-14">BR-14 — Thanh toán sau huỷ</option></select></label>
+        <label>Chuỗi SQL thao tác bạn đã chạy<textarea id="mutation-sql" rows="5" placeholder="Dán từng INSERT, UPDATE hoặc DELETE đã chạy theo thứ tự; mỗi câu kết thúc bằng dấu ;" required></textarea></label>
+        <label>SQL bạn dùng để kiểm chứng<textarea id="evidence-sql" rows="3" placeholder="Viết SELECT lọc đúng dòng vi phạm, trả về ID và các giá trị cần đối chiếu; không chỉ SELECT cả bảng." required></textarea></label>
+        <p class="evidence-help" id="evidence-help">Các câu SQL phải khớp nhật ký trong cùng lượt. SELECT cần trả về cột dữ liệu cụ thể của lỗi và đúng ID bạn báo cáo. BR-06 và BR-09 cần giáo viên đánh giá trực tiếp, không tự chấm.</p>
         <div class="form-pair"><label><span id="target-label">ID bản ghi</span><input id="target-id" type="number" step="1" required></label><label><span id="observed-label">Giá trị quan sát</span><input id="observed" maxlength="50" required></label></div>
-        <label>Kết quả mong đợi<select id="expected" required><option value="">Chọn theo đặc tả…</option><option value="reject">Từ chối thao tác vi phạm; không lưu thay đổi</option><option value="synchronize">Chấp nhận thao tác và đồng bộ số đếm</option><option value="allow">Chấp nhận thao tác; giữ số đếm cũ</option></select></label>
+        <label>Kết quả mong đợi<select id="expected" required><option value="">Chọn theo đặc tả…</option><option value="reject">Từ chối dữ liệu vi phạm</option><option value="synchronize">Đồng bộ trạng thái thanh toán</option><option value="derive">Tính và lưu giá trị đúng theo quy tắc</option></select></label>
         <label>Thực tế quan sát được<textarea id="actual" minlength="20" maxlength="2000" rows="3" placeholder="Mô tả dữ liệu và kết quả thực tế trong bằng chứng…" required></textarea></label>
         <label>Kết luận của bạn<textarea id="conclusion" minlength="20" maxlength="2000" rows="3" placeholder="Dữ liệu này vi phạm quy tắc nào, vì sao?" required></textarea></label>
-        <p class="section-note">Server xác minh bằng chứng và giá trị đối chiếu. Phần diễn giải được lưu để giáo viên xem; bản này không tự chấm ngữ nghĩa văn bản.</p>
+        <p class="section-note">Server đối chiếu chuỗi thao tác, trạng thái dữ liệu trước/sau và kết quả SELECT. Phần diễn giải được lưu để giáo viên xem; không tự chấm ngữ nghĩa văn bản.</p>
         <button type="submit" class="primary" id="submit-report" disabled>Xác minh và nộp báo cáo ↗</button>
         <div id="report-feedback" role="status" aria-live="polite"></div>
       </form>

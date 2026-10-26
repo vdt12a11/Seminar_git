@@ -2,6 +2,7 @@ data/*.sqlite3
 data/*.sqlite3-shm
 data/*.sqlite3-wal
 data/game-v1/
+data/hotel-game-v1/
 data/admin-password.txt
 data/server-*.log
 __pycache__/

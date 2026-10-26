@@ -5,25 +5,7 @@ let busy = false;
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const localTime = value => new Date(value.replace(' ', 'T') + 'Z').toLocaleString('vi-VN');
 const verdicts = {confirmed:'Đã xác nhận', needs_evidence:'Cần thêm bằng chứng', duplicate:'Đã ghi nhận trước đó'};
-const hints = {
-  'REQ-01': ['ID thành viên', 'Độ dài tên thực tế', 'Kết quả đọc cần có id, name; có thể thêm length(name). Nhập số ký tự thực tế vào giá trị quan sát. SQL cần khớp nguyên văn lệnh bạn đã chạy.'],
-  'REQ-02': ['ID thành viên', 'Giá trị email quan sát', 'Kết quả đọc cần có id, email. Nếu quan sát thấy SQL NULL, nhập NULL (khác chuỗi ký tự có nội dung NULL). SQL cần khớp nguyên văn lệnh bạn đã chạy.'],
-  'REQ-03': ['ID đăng ký', 'Bản ghi cha không tồn tại', 'Dùng LEFT JOIN tới cả members và workshops. Kết quả phải có id, member_id, workshop_id, m.id AS member_exists, w.id AS workshop_exists. Cột parent tương ứng phải là NULL để chứng minh thiếu bản ghi.'],
-  'REQ-04': ['ID một đăng ký liên quan', 'Số đăng ký cùng cặp', 'Kết quả đọc cần liệt kê id, member_id, workshop_id của các đăng ký liên quan; hoặc nhóm theo member_id, workshop_id và đặt tên số đếm là copies. SQL cần khớp nguyên văn lệnh bạn đã chạy.'],
-  'REQ-05': ['ID workshop', 'Số đăng ký thực tế', 'Đối chiếu cả workshops và enrollments. Kết quả cần có id (workshop), registered_count, actual_count (số đăng ký bạn tính được). Dùng đúng tên cột/alias này. SQL cần khớp nguyên văn lệnh bạn đã chạy.'],
-  'REQ-06': ['ID workshop', 'Số đăng ký thực tế', 'Đối chiếu cả workshops và enrollments. Kết quả cần có id (workshop), capacity, actual_count (số đăng ký bạn tính được). Dùng đúng tên cột/alias này. SQL cần khớp nguyên văn lệnh bạn đã chạy.']
-};
-const evidencePrompts = {
-  'REQ-01': 'Lọc riêng thành viên vi phạm bằng WHERE; trả về id, name và độ dài tên để chứng minh dòng cụ thể. Không SELECT toàn bảng.',
-  'REQ-02': 'Dùng WHERE email IS NULL để lọc thành viên vi phạm; trả về id, name, email của dòng đó.',
-  'REQ-03': 'LEFT JOIN enrollments với members và workshops, lọc dòng thiếu bản ghi cha bằng WHERE parent.id IS NULL; trả về id đăng ký, member_id, workshop_id và ID cha tìm được.',
-  'REQ-04': 'Lọc cặp member_id + workshop_id bị trùng; trả về ID của các dòng enrollment liên quan và cả hai ID trong cặp.',
-  'REQ-05': 'Đối chiếu mỗi workshop với enrollment bằng LEFT JOIN và GROUP BY; lọc số đếm lưu khác số dòng thực tế. Trả về id workshop, registered_count, actual_count.',
-  'REQ-06': 'Đối chiếu mỗi workshop với enrollment bằng LEFT JOIN và GROUP BY; lọc số dòng thực tế lớn hơn capacity. Trả về id workshop, capacity, actual_count.'
-};
-const defaultEvidencePlaceholder = 'Viết SELECT có WHERE để lọc đúng dòng vi phạm và trả về ID cùng giá trị cần đối chiếu; không chỉ SELECT * cả bảng.';
-$('#evidence-sql').placeholder = defaultEvidencePlaceholder;
-editor.value = 'SELECT * FROM members;';
+editor.value = 'SELECT * FROM Guest;';
 function updateLines() { $('#line-numbers').textContent = editor.value.split('\n').map((_, i) => i + 1).join('\n'); }
 editor.addEventListener('input', updateLines); updateLines();
 function setBusy(value) {
@@ -62,9 +44,9 @@ function render() {
   $('#history-count').textContent = `${state.history.length} LẦN CHẠY`;
   $('#history-list').innerHTML = state.history.length ? [...state.history].reverse().map(h => `<details class="history-item"><summary><span>#${h.id} · ${h.result.error ? 'LỖI SQL' : h.is_write ? 'GHI DỮ LIỆU' : 'ĐỌC DỮ LIỆU'}</span><code>${escapeHtml(h.sql.slice(0, 70))}</code></summary><div class="history-content"><small>${escapeHtml(localTime(h.created))}</small><pre>${escapeHtml(h.sql)}</pre><p>${h.result.error ? escapeHtml(h.result.error) : `${h.result.rows.length} dòng trả về · ${h.result.changes} thay đổi`}</p><button type="button" class="secondary" data-view="${h.id}">Xem lại kết quả</button></div></details>`).join('') : '<p class="empty-copy">Lịch sử SQL sẽ xuất hiện tại đây.</p>';
   $('#reports-list').innerHTML = state.reports.length ? state.reports.map(r => {
-    const writeSql = r.report.mutation_sql || state.history.find(h => h.id === Number(r.report.mutation_id))?.sql || 'Chưa lưu câu lệnh.';
+    const writeSql = r.report.mutation_sql || 'Chưa lưu câu lệnh.';
     const readSql = r.report.evidence_sql || state.history.find(h => h.id === Number(r.report.evidence_id))?.sql || 'Chưa lưu câu lệnh.';
-    return `<details class="submitted-report"><summary><span class="verdict ${r.verdict}">${verdicts[r.verdict]}</span><b>#${r.id} · ${escapeHtml(r.report.requirement)}</b><span>${escapeHtml(r.title || 'Báo cáo điều tra')}</span></summary><div class="history-content"><p>${escapeHtml(r.message)}</p><p><b>Bằng chứng:</b> câu thao tác #${escapeHtml(r.report.mutation_id)} → câu kiểm chứng #${escapeHtml(r.report.evidence_id)} · ID ${escapeHtml(r.report.target_id)} · Quan sát: ${escapeHtml(r.report.observed)}</p><p><b>SQL thao tác:</b></p><pre>${escapeHtml(writeSql)}</pre><p><b>SQL kiểm chứng:</b></p><pre>${escapeHtml(readSql)}</pre><p><b>Thực tế:</b> ${escapeHtml(r.report.actual)}</p><p><b>Kết luận:</b> ${escapeHtml(r.report.conclusion)}</p></div></details>`;
+    return `<details class="submitted-report"><summary><span class="verdict ${r.verdict}">${verdicts[r.verdict]}</span><b>#${r.id} · ${escapeHtml(r.report.requirement)}</b><span>${escapeHtml(r.title || 'Báo cáo điều tra')}</span></summary><div class="history-content"><p>${escapeHtml(r.message)}</p><p><b>Bằng chứng:</b> thao tác #${escapeHtml((r.report.mutation_ids || []).join(', #'))} → kiểm chứng #${escapeHtml(r.report.evidence_id)} · ID ${escapeHtml(r.report.target_id)}</p><p><b>SQL thao tác:</b></p><pre>${escapeHtml(writeSql)}</pre><p><b>SQL kiểm chứng:</b></p><pre>${escapeHtml(readSql)}</pre><p><b>Thực tế:</b> ${escapeHtml(r.report.actual)}</p><p><b>Kết luận:</b> ${escapeHtml(r.report.conclusion)}</p></div></details>`;
   }).join('') : '<p class="empty-copy">Báo cáo và phản hồi xác minh sẽ được lưu tại đây.</p>';
 }
 try { localStorage.removeItem('query_room_group'); localStorage.removeItem('query_room_recovery'); } catch (_) {}
@@ -142,11 +124,9 @@ $('#history-list').addEventListener('click', e => {
   if (view) { const h = state.history.find(h => h.id === Number(view.dataset.view)); showResult(h.result, h.id); $('#result-body').scrollIntoView({behavior:'smooth', block:'center'}); }
 });
 $('#requirement').addEventListener('change', () => {
-  const hint = hints[$('#requirement').value];
-  $('#target-label').textContent = hint?.[0] || 'ID bản ghi';
-  $('#observed-label').textContent = hint?.[1] || 'Giá trị quan sát';
-  $('#evidence-help').textContent = hint?.[2] || 'Dán nguyên văn hai câu SQL bạn đã chạy. Server đối chiếu chúng với nhật ký của phiên này.';
-  $('#evidence-sql').placeholder = evidencePrompts[$('#requirement').value] || defaultEvidencePlaceholder;
+  $('#target-label').textContent = 'ID bản ghi hoặc booking';
+  $('#observed-label').textContent = 'Giá trị quan sát';
+  $('#evidence-help').textContent = 'Dán toàn bộ thao tác ghi theo đúng thứ tự và một SELECT trả về dòng cùng giá trị vi phạm. Các câu phải có trong nhật ký cùng lượt.';
   $('#observed').value = ''; $('#expected').value = ''; $('#report-feedback').textContent = '';
 });
 $('#report-form').addEventListener('submit', async e => {

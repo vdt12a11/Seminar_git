@@ -1,64 +1,121 @@
-"""Server-owned evidence and deterministic validators; not browser assets."""
-import json
-import sqlite3
+"""Hotel booking sandbox and server-side evidence checks.
 
-TABLES = ('members', 'workshops', 'enrollments')
+The Drive SQL Server script is preserved in source/. This is an intentional
+SQLite port for the dependency-free classroom game, not an execution of T-SQL.
+"""
+import json
+import re
+import sqlite3
+from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
+
+TABLES = ('Guest', 'RoomType', 'Room', 'Booking', 'Payment')
 RULES = {
-    'empty_name': ('REQ-01', 'Tên rỗng được chấp nhận'),
-    'long_name': ('REQ-01', 'Tên vượt quá 30 ký tự được lưu'),
-    'null_email': ('REQ-02', 'Email NULL được chấp nhận'),
-    'orphan_enrollment': ('REQ-03', 'Đăng ký không có bản ghi cha hợp lệ'),
-    'duplicate_enrollment': ('REQ-04', 'Một thành viên đăng ký trùng workshop'),
-    'trigger_drift': ('REQ-05', 'Số đếm không cập nhật theo đăng ký'),
-    'over_capacity': ('REQ-06', 'Đăng ký vượt sức chứa'),
+    'invalid_email': ('BR-01', 'Email sai định dạng', 'Guest'),
+    'duplicate_email': ('BR-02', 'Email trùng khác chữ hoa/thường', 'Guest'),
+    'blank_name': ('BR-03', 'Tên khách chỉ có khoảng trắng', 'Guest'),
+    'invalid_room_type': ('BR-04', 'Loại phòng không thuộc danh mục', 'Room'),
+    'inactive_room': ('BR-05', 'Đặt phòng không hoạt động', 'Booking'),
+    'overlap': ('BR-08', 'Hai đặt phòng chồng lấn', 'Booking'),
+    'wrong_nights': ('BR-07', 'Số đêm không khớp ngày', 'Booking'),
+    'wrong_discount': ('BR-10', 'Giảm giá sai chính sách', 'Booking'),
+    'wrong_total': ('BR-11', 'Tổng tiền đặt phòng sai', 'Booking'),
+    'overpayment': ('BR-12', 'Thanh toán vượt tổng tiền', 'Payment'),
+    'wrong_status': ('BR-13', 'Trạng thái không khớp thanh toán', 'Booking'),
+    'cancelled_payment': ('BR-14', 'Đặt phòng đã huỷ vẫn nhận thanh toán', 'Payment'),
 }
 
 
 def initialize(conn, reset=False):
+    conn.execute('PRAGMA foreign_keys=ON')
     if reset:
-        conn.executescript('DROP TABLE IF EXISTS enrollments; DROP TABLE IF EXISTS members; DROP TABLE IF EXISTS workshops;')
+        conn.executescript('DROP TABLE IF EXISTS Payment; DROP TABLE IF EXISTS Booking; '
+                           'DROP TABLE IF EXISTS Room; DROP TABLE IF EXISTS RoomType; DROP TABLE IF EXISTS Guest;')
     conn.executescript('''
-        CREATE TABLE members (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT,
-                              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE workshops (id INTEGER PRIMARY KEY, title TEXT NOT NULL, capacity INTEGER NOT NULL,
-                                registered_count INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE enrollments (id INTEGER PRIMARY KEY, member_id INTEGER, workshop_id INTEGER,
-                                  enrolled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TRIGGER enrollment_added AFTER INSERT ON enrollments BEGIN
-            UPDATE workshops SET registered_count=registered_count+1 WHERE id=NEW.workshop_id;
+        CREATE TABLE Guest (guest_id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE,
+            full_name TEXT NOT NULL CHECK(length(trim(full_name)) > 0), phone TEXT);
+        CREATE TABLE RoomType (room_type_id INTEGER PRIMARY KEY, type_name TEXT NOT NULL UNIQUE);
+        CREATE TABLE Room (room_id INTEGER PRIMARY KEY, room_number TEXT NOT NULL UNIQUE,
+            room_type TEXT NOT NULL, price_per_night NUMERIC NOT NULL CHECK(price_per_night > 0),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)));
+        CREATE TABLE Booking (booking_id INTEGER PRIMARY KEY, booking_code TEXT NOT NULL UNIQUE,
+            guest_id INTEGER NOT NULL REFERENCES Guest(guest_id),
+            room_id INTEGER NOT NULL REFERENCES Room(room_id),
+            check_in TEXT NOT NULL, check_out TEXT NOT NULL, nights INTEGER NOT NULL CHECK(nights > 0),
+            discount_rate NUMERIC NOT NULL DEFAULT 0 CHECK(discount_rate BETWEEN 0 AND 1),
+            total_amount NUMERIC NOT NULL CHECK(total_amount >= 0),
+            status TEXT NOT NULL DEFAULT 'BOOKED' CHECK(status IN ('BOOKED','PAID','CANCELLED')),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK(date(check_out) > date(check_in)));
+        CREATE TABLE Payment (payment_id INTEGER PRIMARY KEY,
+            booking_id INTEGER NOT NULL REFERENCES Booking(booking_id) ON DELETE CASCADE,
+            amount NUMERIC NOT NULL CHECK(amount > 0), paid_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+        CREATE INDEX booking_room_dates ON Booking(room_id,check_in,check_out);
+        CREATE INDEX payment_booking ON Payment(booking_id);
+        CREATE TRIGGER payment_insert AFTER INSERT ON Payment BEGIN
+            UPDATE Booking SET status=CASE WHEN
+                (SELECT coalesce(sum(amount),0) FROM Payment WHERE booking_id=NEW.booking_id)>=total_amount
+                THEN 'PAID' ELSE 'BOOKED' END
+            WHERE booking_id=NEW.booking_id AND status<>'CANCELLED';
         END;
-        INSERT INTO members(name,email) VALUES ('An Nguyen','an@example.test'),
-            ('Minh Tran','minh@example.test'), ('Linh Pham','linh@example.test');
-        INSERT INTO workshops(title,capacity) VALUES ('Database Testing 101',2), ('SQL Clinic',12), ('Bug Hunt Lab',8);
+        CREATE TRIGGER payment_update AFTER UPDATE ON Payment BEGIN
+            UPDATE Booking SET status=CASE WHEN
+                (SELECT coalesce(sum(amount),0) FROM Payment WHERE booking_id=NEW.booking_id)>=total_amount
+                THEN 'PAID' ELSE 'BOOKED' END
+            WHERE booking_id=NEW.booking_id AND status<>'CANCELLED';
+            UPDATE Booking SET status=CASE WHEN
+                (SELECT coalesce(sum(amount),0) FROM Payment WHERE booking_id=OLD.booking_id)>=total_amount
+                THEN 'PAID' ELSE 'BOOKED' END
+            WHERE booking_id=OLD.booking_id AND status<>'CANCELLED';
+        END;
+        CREATE TRIGGER payment_delete AFTER DELETE ON Payment BEGIN
+            UPDATE Booking SET status=CASE WHEN
+                (SELECT coalesce(sum(amount),0) FROM Payment WHERE booking_id=OLD.booking_id)>=total_amount
+                THEN 'PAID' ELSE 'BOOKED' END
+            WHERE booking_id=OLD.booking_id AND status<>'CANCELLED';
+        END;
+        INSERT INTO RoomType(type_name) VALUES ('Standard'),('Deluxe'),('Family');
+        INSERT INTO Guest(email,full_name,phone) VALUES
+            ('anna@example.test','Anna Nguyen','0900000101'),
+            ('minh@example.test','Minh Tran','0900000102'),
+            ('linh@example.test','Linh Pham','0900000103');
+        INSERT INTO Room(room_number,room_type,price_per_night,active) VALUES
+            ('101','Standard',1000000,1),('102','Deluxe',1600000,1),('201','Family',2200000,0);
+        INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount)
+            VALUES ('HTL-1001',1,1,'2026-11-02','2026-11-05',3,0.1,2700000),
+                   ('HTL-1002',2,2,'2026-11-07','2026-11-09',2,0,3200000);
+        INSERT INTO Payment(booking_id,amount) VALUES (1,500000),(2,3200000);
     ''')
     conn.commit()
 
 
 def snapshot(conn):
     conn.row_factory = sqlite3.Row
-    return {t: [dict(r) for r in conn.execute(f'SELECT * FROM {t} ORDER BY id')] for t in TABLES}
+    return {table: [dict(row) for row in conn.execute(f'SELECT * FROM {table} ORDER BY 1')]
+            for table in TABLES}
 
 
 def execute_query(conn, sql):
+    conn.execute('PRAGMA foreign_keys=ON')
     reads, writes = set(), set()
+    allowed = {t.lower(): t for t in TABLES}
     def authorize(action, table, column, db, source):
+        name = allowed.get((table or '').lower())
         if action == sqlite3.SQLITE_SELECT:
             return sqlite3.SQLITE_OK
-        if action == sqlite3.SQLITE_READ and table in TABLES and (db == 'main' or (db is None and column == '')):
-            reads.add((table, column))
+        if action == sqlite3.SQLITE_READ and name and db == 'main':
+            reads.add((name, column))
             return sqlite3.SQLITE_OK
         if action == sqlite3.SQLITE_FUNCTION:
-            return sqlite3.SQLITE_DENY if column.lower() in ('load_extension', 'writefile', 'readfile') else sqlite3.SQLITE_OK
-        if action in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE) and table in TABLES and db == 'main':
-            allowed = table in ('members', 'enrollments')
-            if action == sqlite3.SQLITE_UPDATE and column == 'id':
-                allowed = False
-            if table == 'workshops':
-                allowed = action == sqlite3.SQLITE_UPDATE and column in ('title', 'capacity')
-                allowed |= action == sqlite3.SQLITE_UPDATE and column == 'registered_count' and source == 'enrollment_added'
-            if allowed:
-                writes.add(table)
-                return sqlite3.SQLITE_OK
+            return sqlite3.SQLITE_DENY if (column or '').lower() in ('load_extension','writefile','readfile') else sqlite3.SQLITE_OK
+        if action in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE) and name and db == 'main':
+            if name == 'RoomType' or (action == sqlite3.SQLITE_UPDATE and column in
+                ('guest_id','room_id','booking_id','payment_id','room_type_id')):
+                return sqlite3.SQLITE_DENY
+            if source and source not in ('payment_insert','payment_update','payment_delete'):
+                return sqlite3.SQLITE_DENY
+            writes.add(name)
+            return sqlite3.SQLITE_OK
         return sqlite3.SQLITE_DENY
     conn.execute('BEGIN')
     conn.set_authorizer(authorize)
@@ -67,21 +124,19 @@ def execute_query(conn, sql):
         budget[0] += 1
         return budget[0] > 3000
     conn.set_progress_handler(progress, 1000)
-    if hasattr(conn, 'setlimit'):  # Python 3.11+; the classroom machine also has 3.10.
+    if hasattr(conn, 'setlimit'):
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 100000)
+    before_changes = conn.total_changes
     try:
         cur = conn.execute(sql)
         rows = [dict(r) for r in cur.fetchmany(501)] if cur.description else []
         result = {'columns': [d[0] for d in cur.description] if cur.description else [],
-                  'rows': rows[:500], 'truncated': len(rows) > 500, 'changes': conn.total_changes}
+                  'rows': rows[:500], 'truncated': len(rows) > 500,
+                  'changes': conn.total_changes - before_changes}
         conn.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
         conn.set_progress_handler(None, 0)
         if any(conn.execute(f'SELECT count(*) FROM {t}').fetchone()[0] > 1000 for t in TABLES):
             raise ValueError('Mỗi bảng giới hạn 1000 bản ghi trong một lượt điều tra.')
-        if any(isinstance(value, bytes) for table in [*snapshot(conn).values(), result['rows']] for row in table for value in row.values()):
-            raise ValueError('Bản này chỉ hỗ trợ dữ liệu văn bản và số; không dùng BLOB.')
-        if conn.execute("SELECT 1 FROM workshops WHERE typeof(capacity) != 'integer' OR capacity < 1 OR capacity > 1000").fetchone():
-            raise ValueError('Sức chứa workshop phải là số nguyên từ 1 đến 1000.')
         conn.commit()
     except (sqlite3.Error, ValueError) as exc:
         conn.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
@@ -89,134 +144,275 @@ def execute_query(conn, sql):
         conn.rollback()
         message = str(exc)
         if 'authorized' in message or 'prohibited' in message:
-            message = 'Chế độ chơi chỉ cho đọc và sửa dữ liệu nghiệp vụ. Cấu trúc, ID hiện có và số đếm hệ thống được bảo vệ.'
+            message = 'Chỉ được truy vấn và sửa dữ liệu nghiệp vụ; cấu trúc, ID và danh mục loại phòng được bảo vệ.'
         result = {'error': message}
         writes.clear()
     return result, sorted(reads), sorted(writes)
 
 
+def money(value):
+    return Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def email_valid(value):
+    if not isinstance(value, str) or value.count('@') != 1 or re.search(r'\s', value):
+        return False
+    local, domain = value.split('@')
+    parts = domain.split('.')
+    return bool(local and len(parts) >= 2 and all(parts))
+
+
 def witnesses(state):
-    """Canonical counterexamples from trusted snapshots, not player projections."""
-    out = {k: {} for k in RULES}
-    members = {r['id']: r for r in state['members']}
-    workshops = {r['id']: r for r in state['workshops']}
-    enrollments = state['enrollments']
-    for r in members.values():
-        if not r['name'].strip():
-            out['empty_name'][r['id']] = r
-        if len(r['name']) > 30:
-            out['long_name'][r['id']] = r
-        if r['email'] is None:
-            out['null_email'][r['id']] = r
-    for r in enrollments:
-        if r['member_id'] not in members or r['workshop_id'] not in workshops:
-            out['orphan_enrollment'][r['id']] = r
-        copies = sum(e['member_id'] == r['member_id'] and e['workshop_id'] == r['workshop_id'] for e in enrollments)
-        if copies > 1:
-            out['duplicate_enrollment'][r['id']] = {**r, 'copies': copies}
-    for r in workshops.values():
-        actual = sum(e['workshop_id'] == r['id'] for e in enrollments)
-        if r['registered_count'] != actual:
-            out['trigger_drift'][r['id']] = {**r, 'actual_count': actual}
-        if actual > r['capacity']:
-            out['over_capacity'][r['id']] = {**r, 'actual_count': actual}
+    """Independent oracle; never derives a verdict from a player's SELECT alone."""
+    out = {key: {} for key in RULES}
+    guests = {r['guest_id']: r for r in state['Guest']}
+    rooms = {r['room_id']: r for r in state['Room']}
+    room_types = {r['type_name'] for r in state['RoomType']}
+    bookings = {r['booking_id']: r for r in state['Booking']}
+    payments = state['Payment']
+    for g in guests.values():
+        if not email_valid(g['email']):
+            out['invalid_email'][g['guest_id']] = g
+        if not g['full_name'].strip() or len(g['full_name'].strip()) > 100:
+            out['blank_name'][g['guest_id']] = g
+        other = next((x for x in guests.values() if x['guest_id'] != g['guest_id'] and
+                      x['email'].lower() == g['email'].lower()), None)
+        if other:
+            out['duplicate_email'][g['guest_id']] = {**g, 'other_id': other['guest_id']}
+    for room in rooms.values():
+        if room['room_type'] not in room_types:
+            out['invalid_room_type'][room['room_id']] = room
+    for b in bookings.values():
+        bid = b['booking_id']
+        room = rooms.get(b['room_id'])
+        paid = sum(money(p['amount']) for p in payments if p['booking_id'] == bid)
+        if room and not room['active']:
+            out['inactive_room'][bid] = {**b, 'active': room['active']}
+        other = next((x for x in bookings.values() if x['booking_id'] != bid and
+                      x['room_id'] == b['room_id'] and x['status'] != 'CANCELLED' and
+                      b['status'] != 'CANCELLED' and
+                      b['check_in'] < x['check_out'] and x['check_in'] < b['check_out']), None)
+        if other:
+            out['overlap'][bid] = {**b, 'other_id': other['booking_id'],
+                                   'other_check_in': other['check_in'], 'other_check_out': other['check_out']}
+        try:
+            actual_nights = (date.fromisoformat(b['check_out']) - date.fromisoformat(b['check_in'])).days
+        except (ValueError, TypeError):
+            actual_nights = None
+        if actual_nights is not None and b['nights'] != actual_nights:
+            out['wrong_nights'][bid] = {**b, 'actual_nights': actual_nights}
+        correct_rate = Decimal('0.1') if b['nights'] >= 3 else Decimal('0')
+        if money(b['discount_rate']) != correct_rate:
+            out['wrong_discount'][bid] = b
+        if room:
+            total = money(Decimal(str(b['nights'])) * Decimal(str(room['price_per_night'])) *
+                          (1 - Decimal(str(b['discount_rate']))))
+            if money(b['total_amount']) != total:
+                out['wrong_total'][bid] = {**b, 'price_per_night': room['price_per_night'],
+                                           'expected_total': float(total)}
+        if paid > money(b['total_amount']):
+            out['overpayment'][bid] = {**b, 'paid_total': float(paid)}
+        if b['status'] != 'CANCELLED':
+            correct_status = 'PAID' if paid >= money(b['total_amount']) else 'BOOKED'
+            if b['status'] != correct_status:
+                out['wrong_status'][bid] = {**b, 'paid_total': float(paid)}
+        else:
+            for p in payments:
+                if p['booking_id'] == bid:
+                    out['cancelled_payment'][p['payment_id']] = {**p, 'status': b['status']}
     return out
 
 
 def public_history(row):
+    result = json.loads(row['result'])
     return {'id': row['id'], 'sql': row['sql'], 'created': row['created'],
-            'result': json.loads(row['result']), 'is_write': bool(json.loads(row['writes']))}
+            'result': result, 'is_write': bool(json.loads(row['writes']))}
+
+
+def canonical_sql(value):
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    return value[:-1].strip() if value.endswith(';') else value
+
+
+def split_statements(value):
+    """One statement per game execution; semicolons inside string literals are allowed."""
+    if not isinstance(value, str) or len(value) > 30000:
+        return []
+    statements, chunk = [], ''
+    for character in value:
+        chunk += character
+        if character == ';' and sqlite3.complete_statement(chunk):
+            statements.append(canonical_sql(chunk))
+            chunk = ''
+    if chunk.strip():
+        statements.append(canonical_sql(chunk))
+    return [s for s in statements if s]
+
+
+def proof_matches(key, record, rows, reads, target):
+    """Require concrete row values and underlying columns, not just a table read."""
+    fields = {
+        'invalid_email': ('guest_id', 'email'),
+        'duplicate_email': ('guest_id', 'email', 'other_id'),
+        'blank_name': ('guest_id', 'full_name'),
+        'invalid_room_type': ('room_id', 'room_type'),
+        'inactive_room': ('booking_id', 'room_id', 'active'),
+        'overlap': ('booking_id', 'room_id', 'check_in', 'check_out', 'other_id', 'other_check_in', 'other_check_out'),
+        'wrong_nights': ('booking_id', 'nights', 'actual_nights'),
+        'wrong_discount': ('booking_id', 'nights', 'discount_rate'),
+        'wrong_total': ('booking_id', 'nights', 'discount_rate', 'total_amount', 'price_per_night'),
+        'overpayment': ('booking_id', 'total_amount', 'paid_total'),
+        'wrong_status': ('booking_id', 'total_amount', 'paid_total', 'status'),
+        'cancelled_payment': ('payment_id', 'booking_id', 'amount', 'status'),
+    }[key]
+    needed_reads = {
+        'invalid_email': {('Guest','guest_id'),('Guest','email')},
+        'duplicate_email': {('Guest','guest_id'),('Guest','email')},
+        'blank_name': {('Guest','guest_id'),('Guest','full_name')},
+        'invalid_room_type': {('Room','room_id'),('Room','room_type'),('RoomType','type_name')},
+        'inactive_room': {('Booking','booking_id'),('Booking','room_id'),('Room','active')},
+        'overlap': {('Booking','booking_id'),('Booking','room_id'),('Booking','check_in'),('Booking','check_out')},
+        'wrong_nights': {('Booking','booking_id'),('Booking','nights'),('Booking','check_in'),('Booking','check_out')},
+        'wrong_discount': {('Booking','booking_id'),('Booking','nights'),('Booking','discount_rate')},
+        'wrong_total': {('Booking','booking_id'),('Booking','nights'),('Booking','discount_rate'),
+                        ('Booking','total_amount'),('Room','price_per_night')},
+        'overpayment': {('Booking','booking_id'),('Booking','total_amount'),('Payment','amount')},
+        'wrong_status': {('Booking','booking_id'),('Booking','total_amount'),('Booking','status'),('Payment','amount')},
+        'cancelled_payment': {('Booking','booking_id'),('Booking','status'),
+                              ('Payment','payment_id'),('Payment','amount')},
+    }[key]
+    if not needed_reads <= set(map(tuple, reads)):
+        return False
+    for row in rows:
+        if not all(field in row for field in fields):
+            continue
+        if not all(row[field] == record[field] for field in fields):
+            continue
+        if row[fields[0]] == target:
+            return True
+    return False
+
+
+def causal_step_valid(key, selected, target):
+    """Check the timing of rules that apply only when a row is newly created."""
+    if key not in ('inactive_room','cancelled_payment'):
+        return True
+    for step in selected:
+        before = json.loads(step['before_state'])
+        after = json.loads(step['after_state'])
+        if key == 'inactive_room':
+            old_ids = {r['booking_id'] for r in before['Booking']}
+            booking = next((r for r in after['Booking'] if r['booking_id'] == target), None)
+            if booking and target not in old_ids and 'Booking' in json.loads(step['writes']):
+                room = next((r for r in before['Room'] if r['room_id'] == booking['room_id']), None)
+                if room and room['active'] == 0:
+                    return True
+        else:
+            old_ids = {r['payment_id'] for r in before['Payment']}
+            payment = next((r for r in after['Payment'] if r['payment_id'] == target), None)
+            if payment and target not in old_ids and 'Payment' in json.loads(step['writes']):
+                booking = next((r for r in before['Booking'] if r['booking_id'] == payment['booking_id']), None)
+                if booking and booking['status'] == 'CANCELLED':
+                    return True
+    return False
 
 
 def verify_report(store, player, round_no, payload):
     def fail(message):
         return {'verdict': 'needs_evidence', 'message': message}
     rule = payload.get('requirement')
-    if rule not in {v[0] for v in RULES.values()}:
-        return fail('Chọn yêu cầu nghiệp vụ cần chứng minh.')
-    for field in ('conclusion', 'actual'):
+    if rule not in {entry[0] for entry in RULES.values()}:
+        return fail('Chọn quy tắc nghiệp vụ có lỗi tự động chấm.')
+    already = store.execute("SELECT title FROM reports WHERE player=? AND verdict='confirmed' AND bug_key IN ("+
+        ','.join('?' for _ in RULES)+") ORDER BY id DESC", (player,*RULES.keys())).fetchall()
+    for item in already:
+        if any(req == rule and title == item['title'] for req,title,_ in RULES.values()):
+            return {'verdict':'duplicate','title':item['title'],
+                    'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
+    for field in ('actual','conclusion'):
         if not isinstance(payload.get(field), str) or not 20 <= len(payload[field].strip()) <= 2000:
-            return fail('Mô tả thực tế và kết luận cần từ 20 đến 2000 ký tự mỗi phần.')
-    expected = 'synchronize' if rule == 'REQ-05' else 'reject'
-    if payload.get('expected') != expected:
-        return fail('Kết quả mong đợi chưa phù hợp với yêu cầu nghiệp vụ đã chọn.')
-    def canonical_sql(value):
-        if not isinstance(value, str):
-            return ''
-        value = value.strip()
-        return value[:-1].strip() if value.endswith(';') else value
-    mutation_sql = canonical_sql(payload.get('mutation_sql'))
+            return fail('Thực tế và kết luận cần từ 20 đến 2000 ký tự mỗi phần.')
+    expected_by_rule = {'BR-13':'synchronize','BR-07':'derive','BR-10':'derive','BR-11':'derive'}
+    if payload.get('expected') != expected_by_rule.get(rule, 'reject'):
+        return fail('Chọn kết quả mong đợi theo đặc tả.')
+    statements = split_statements(payload.get('mutation_sql'))
     evidence_sql = canonical_sql(payload.get('evidence_sql'))
-    if not mutation_sql or not evidence_sql or len(mutation_sql) > 6000 or len(evidence_sql) > 6000:
-        return fail('Nhập hai câu SQL đã chạy trong phiên này: câu gây vi phạm và câu truy vấn kiểm chứng.')
+    if not statements or not evidence_sql or len(evidence_sql) > 6000:
+        return fail('Nhập toàn bộ câu thao tác đã chạy, ngăn cách bằng dấu ; và một câu SELECT kiểm chứng.')
     try:
         target = int(payload['target_id'])
     except (ValueError, TypeError, KeyError):
-        return fail('Nhập ID bản ghi được trả về trong kết quả SQL.')
-    mutations = store.execute('SELECT * FROM history WHERE player=? AND round=? ORDER BY id DESC',
-                              (player, round_no)).fetchall()
-    evidence_queries = mutations
-    matched_any = False
-    for mutation in mutations:
-        mutation_id = mutation['id']
-        if canonical_sql(mutation['sql']) != mutation_sql:
+        return fail('Nhập ID của bản ghi hoặc booking vi phạm.')
+    history = store.execute('SELECT * FROM history WHERE player=? AND round=? ORDER BY id',
+                            (player, round_no)).fetchall()
+    history_ids = {h['id'] for h in history}
+    boundary = 0
+    for previous_report in store.execute("SELECT payload FROM reports WHERE player=? AND verdict='confirmed' ORDER BY id",(player,)):
+        try:
+            previous_evidence = int(json.loads(previous_report['payload']).get('evidence_id',0))
+        except (ValueError, TypeError):
             continue
-        mr = json.loads(mutation['result'])
-        if 'error' in mr or not json.loads(mutation['writes']) or mr['changes'] == 0:
+        if previous_evidence in history_ids:
+            boundary = max(boundary, previous_evidence)
+    candidates = [h for h in history if canonical_sql(h['sql']) == evidence_sql and
+                  h['id'] > boundary and
+                  not json.loads(h['writes']) and 'error' not in json.loads(h['result']) and
+                  json.loads(h['result']).get('rows')]
+    for evidence in reversed(candidates):
+        previous = [h for h in history if boundary < h['id'] < evidence['id'] and json.loads(h['writes']) and
+                    'error' not in json.loads(h['result'])]
+        if len(previous) != len(statements) or not any(json.loads(h['result'])['changes'] > 0 for h in previous):
             continue
-        for evidence in evidence_queries:
-            evidence_id = evidence['id']
-            if evidence_id <= mutation_id or canonical_sql(evidence['sql']) != evidence_sql:
+        selected = previous
+        if [canonical_sql(h['sql']) for h in selected] != statements:
+            continue
+        if any(json.loads(h['writes']) for h in history if selected[-1]['id'] < h['id'] < evidence['id']):
+            continue
+        # All writes in the proof interval must be included, in their execution order.
+        if any(h['id'] > selected[0]['id'] and h['id'] < evidence['id'] and json.loads(h['writes']) and
+               h['id'] not in {x['id'] for x in selected} for h in history):
+            continue
+        before = witnesses(json.loads(selected[0]['before_state']))
+        after = witnesses(json.loads(selected[-1]['after_state']))
+        at_evidence = witnesses(json.loads(evidence['after_state']))
+        rows = json.loads(evidence['result'])['rows']
+        reads = json.loads(evidence['reads'])
+        for key, (requirement, title, _) in RULES.items():
+            if requirement != rule or target in before[key] or target not in after[key] or target not in at_evidence[key]:
                 continue
-            er = json.loads(evidence['result'])
-            if 'error' in er or json.loads(evidence['writes']) or not er.get('rows'):
+            # Payment-trigger effects and price edits are explicitly scoped to their cause.
+            relevant = {'overpayment':'Payment','cancelled_payment':'Payment'}.get(key)
+            if relevant and not any(relevant in json.loads(h['writes']) for h in selected):
                 continue
-            between = store.execute('SELECT writes FROM history WHERE player=? AND round=? AND id>? AND id<?',
-                                    (player, round_no, mutation_id, evidence_id)).fetchall()
-            if any(json.loads(r['writes']) for r in between):
+            if key == 'wrong_total' and 'Booking' not in json.loads(selected[-1]['writes']):
                 continue
-            matched_any = True
-            before = witnesses(json.loads(mutation['before_state']))
-            after = witnesses(json.loads(mutation['after_state']))
-            state = json.loads(evidence['after_state'])
-            current = witnesses(state)
-            read_tables = {t for t, c in json.loads(evidence['reads'])}
-            for key, (req, title) in RULES.items():
-                if req != rule or target not in after[key] or target in before[key] or target not in current[key]:
-                    continue
-                record = current[key][target]
-                rows = er['rows']
-                observed = str(payload.get('observed', '')).strip()
-                matches = False
-                if key in ('empty_name', 'long_name'):
-                    matches = 'members' in read_tables and observed == str(len(record['name'])) and any(
-                        r.get('id') == target and r.get('name') == record['name'] for r in rows)
-                elif key == 'null_email':
-                    matches = 'members' in read_tables and observed.upper() == 'NULL' and any(
-                        r.get('id') == target and 'email' in r and r['email'] is None for r in rows)
-                elif key == 'orphan_enrollment':
-                    missing = {'member': record['member_id'] not in {r['id'] for r in state['members']},
-                               'workshop': record['workshop_id'] not in {r['id'] for r in state['workshops']}}
-                    joined_rows = [r for r in rows if all(r.get(c) == record[c] for c in ('id', 'member_id', 'workshop_id'))]
-                    parent_column = {'member': 'member_exists', 'workshop': 'workshop_exists'}.get(observed)
-                    matches = {'enrollments', 'members', 'workshops'} <= read_tables and missing.get(observed, False) and any(
-                        parent_column in r and r[parent_column] is None for r in joined_rows)
-                elif key == 'duplicate_enrollment':
-                    matching = [r for r in rows if all(r.get(c) == record[c] for c in ('member_id', 'workshop_id')) and 'id' in r]
-                    matches = 'enrollments' in read_tables and observed == str(record['copies']) and (
-                        len({r['id'] for r in matching}) == record['copies'] or
-                        any(all(r.get(c) == record[c] for c in ('member_id', 'workshop_id', 'copies')) for r in rows))
-                elif key in ('trigger_drift', 'over_capacity'):
-                    field = 'registered_count' if key == 'trigger_drift' else 'capacity'
-                    matches = {'workshops', 'enrollments'} <= read_tables and observed == str(record['actual_count']) and any(
-                        all(r.get(c) == record[c] for c in ('id', field, 'actual_count')) for r in rows)
-                if not matches:
-                    continue
-                if store.execute("SELECT 1 FROM reports WHERE player=? AND verdict='confirmed' AND bug_key=?", (player, key)).fetchone():
-                    return {'verdict': 'duplicate', 'message': 'Bạn đã được ghi nhận lỗi này. Không cộng điểm lần nữa.', 'title': title}
-                return {'verdict': 'confirmed', 'bug_key': key, 'title': title,
-                        'mutation_id': mutation_id, 'evidence_id': evidence_id,
-                        'message': 'Bằng chứng và đối chiếu nghiệp vụ hợp lệ. +100 điểm. Phần diễn giải được lưu để giáo viên xem.'}
-    if matched_any:
-        return fail('Hai câu SQL đã chạy nhưng dữ liệu trả về chưa chứng minh đúng yêu cầu, bản ghi hoặc giá trị bạn báo cáo.')
-    return fail('Không tìm thấy hai câu SQL khớp với nhật ký phiên này. Dán đúng câu lệnh thao tác và truy vấn kiểm chứng bạn đã chạy.')
+            if not causal_step_valid(key, selected, target):
+                continue
+            record = at_evidence[key][target]
+            if not proof_matches(key, record, rows, reads, target):
+                continue
+            observed_field = {
+                'invalid_email':'email','duplicate_email':'email','blank_name':'full_name',
+                'invalid_room_type':'room_type','inactive_room':'active','overlap':'other_id',
+                'wrong_nights':'actual_nights','wrong_discount':'discount_rate',
+                'wrong_total':'total_amount','overpayment':'paid_total',
+                'wrong_status':'status','cancelled_payment':'amount',
+            }[key]
+            observed = str(payload.get('observed','')).strip()
+            actual_value = len(record['full_name'].strip()) if key == 'blank_name' else record[observed_field]
+            try:
+                numeric_match = money(observed) == money(actual_value)
+            except (ValueError, TypeError, ArithmeticError):
+                numeric_match = False
+            if not (observed == str(actual_value).strip() or numeric_match):
+                continue
+            if store.execute("SELECT 1 FROM reports WHERE player=? AND verdict='confirmed' AND bug_key=?",
+                             (player,key)).fetchone():
+                return {'verdict':'duplicate','title':title,
+                        'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
+            return {'verdict':'confirmed','bug_key':key,'title':title,
+                    'mutation_ids':[h['id'] for h in selected], 'evidence_id':evidence['id'],
+                    'message':'Chuỗi thao tác và SELECT chứng minh vi phạm đã được đối chiếu. +100 điểm.'}
+    return fail('Chưa khớp chuỗi thao tác và SELECT trong cùng lượt, hoặc kết quả chưa chỉ ra đúng dòng và giá trị vi phạm.')
