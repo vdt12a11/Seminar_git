@@ -27,15 +27,20 @@ Khi nâng cấp journal từ phiên bản trước, migration gắn báo cáo c�
 | BR-05 | Booking tham chiếu Room không hoạt động | `booking_id` / `active` (0) |
 | BR-07 | `nights` khác hiệu hai ngày | `booking_id` / số đêm tính từ ngày |
 | BR-08 | Booking giao khoảng ngày với booking khác cùng phòng, cả hai chưa huỷ | `booking_id` / ID booking còn lại |
+| BR-09 | Tạo booking hợp lệ theo giá phòng ban đầu, sau đó đổi giá phòng; schema không có cột snapshot nên không thể tra lại đơn giá áp dụng lúc đặt | `booking_id` / số cột snapshot tìm thấy (0) |
 | BR-10 | `discount_rate` sai chính sách theo nights | `booking_id` / discount_rate |
 | BR-11 | total_amount không khớp phép tính từ đơn giá phòng hiện tại khi **tạo/sửa Booking** | `booking_id` / total_amount |
 | BR-12 | Tổng payment > total_amount | `booking_id` / tổng payment |
-| BR-13 | Booking chưa huỷ có status khác kết quả đối chiếu payment/total_amount | `booking_id` / status |
+| BR-13a | Sửa trực tiếp `status` thành giá trị không khớp payment/total_amount | `booking_id` / status |
+| BR-13b | Đổi `total_amount` làm trạng thái cũ không còn khớp payment | `booking_id` / status |
+| BR-13c | Tạo booking `total_amount = 0` nhưng mặc định vẫn là `BOOKED` thay vì `PAID` | `booking_id` / status |
 | BR-14 | Payment mới được thêm vào booking CANCELLED | `payment_id` / amount |
 
-BR-06 được khóa ngoại bảo vệ nên không phải một lỗi để cộng điểm. BR-09 thiếu cột lưu đơn giá tại thời điểm đặt, là thiếu sót **cấu trúc**: cần giáo viên kiểm tra trực tiếp schema và thử đổi giá. Không tự chấm bằng một SELECT dòng dữ liệu. BR-11 chỉ chấm khi bước cuối ghi Booking vì không có snapshot giá lịch sử để phân biệt booking cũ đúng giá với giá phòng vừa bị đổi.
+BR-06 được khóa ngoại bảo vệ nên không phải bug để cộng điểm. Form vẫn có ca xác minh BR-06: thử INSERT tham chiếu guest/room không tồn tại, rồi SELECT theo `booking_code` để xác nhận booking không được lưu; kết quả là “đã xác minh quy tắc”, không cộng điểm. BR-09 được chấm bằng chuỗi chứng cứ gồm tạo booking mới với tổng tiền đúng theo giá lúc đó, đổi giá phòng đã dùng, rồi SELECT booking cùng giá phòng hiện tại và metadata schema qua `pragma_table_info`. Bộ chấm xác nhận độc lập rằng bảng Booking không có cột snapshot giá và tổng tiền đã lưu khác phép tính theo giá mới. BR-11 chỉ được chấm nếu Booking được ghi sau lần đổi giá gần nhất; như vậy việc đổi giá về sau không bị nhầm thành lỗi tính tổng tiền lúc đặt.
 
-Đối chiếu 15 mục trong `hotel_known_issues.docx`: mục 1→BR-01, 2→BR-02, 3→BR-03, 4→BR-04, 5→BR-05, 6→BR-08, 7→BR-07, 8→BR-09 (giáo viên duyệt), 9→BR-10, 10→BR-11, 11→BR-12, 12→BR-14, 13 và 14→cùng dạng BR-13, 15→BR-13 với `total_amount = 0`. Vì mục 13–15 cùng vi phạm quy tắc trạng thái, bản này chỉ cộng điểm một lần cho BR-13. Quy tắc BR-06 từ đặc tả đã được khóa ngoại bảo vệ, nên không có phản ví dụ hợp lệ để cộng điểm.
+Bản hoạt động chấm riêng đủ 15 tình huống lỗi trong tài liệu nguồn. Ba mục 13–15 đều thuộc BR-13 nhưng có `bug_key` và bằng chứng nguyên nhân riêng nên mỗi tình huống có thể được phát hiện và tính điểm một lần. BR-06 có trong form dưới dạng ca xác minh quy tắc được bảo vệ, không phải một trong 15 bug.
+
+Đối chiếu 15 mục trong `hotel_known_issues.docx`: mục 1→BR-01, 2→BR-02, 3→BR-03, 4→BR-04, 5→BR-05, 6→BR-08, 7→BR-07, 8→BR-09, 9→BR-10, 10→BR-11, 11→BR-12, 12→BR-14, 13→BR-13a, 14→BR-13b, 15→BR-13c. Mục 2 và 4 phụ thuộc collation/diễn giải, như tài liệu nguồn lưu ý; bản SQLite mô phỏng cả hai tình huống để chúng có thể kiểm tra. BR-06 là đối chứng đã được bảo vệ trong schema, không nằm trong danh sách 15 lỗi.
 
 Hai mục trong danh sách nguồn được xem là phụ thuộc môi trường hoặc diễn giải (collation của email và danh mục room type). Bản SQLite đặt so sánh email phân biệt hoa thường để BR-02 là tình huống thử được; RoomType được giữ như danh mục, nên BR-04 có căn cứ rõ. BR-03 dùng `strip()` của Python cho nghĩa whitespace, còn CHECK mẫu chỉ loại dấu cách thường. Việc chuyển này được công khai để tránh nhầm với hành vi SQL Server trong script gốc.
 
@@ -46,4 +51,4 @@ Hai mục trong danh sách nguồn được xem là phụ thuộc môi trường
 - Cú pháp SQLite không trùng hoàn toàn T-SQL: dùng `julianday` thay `DATEDIFF`, không dùng `GO`, `NVARCHAR` hay `dbo.` trong editor.
 - `total_amount` bằng 0 và chính sách giảm giá/giá ở các trạng thái bất thường có thể làm nhiều quy tắc cùng sai; chỉ quy tắc và dòng được chứng minh trong đơn mới nhận điểm. Trường hợp gây tranh cãi nên được giáo viên duyệt.
 
-Chạy kiểm tra: `python -m unittest discover -s tests -v` và `node --check app.js`. Bộ kiểm tra HTTP bao gồm 12 dạng xác nhận, chuỗi hai lệnh, thiếu bước, giá trị quan sát sai, lựa chọn mong đợi sai, truy vấn toàn bảng, lượt cũ và thao tác bị từ chối.
+Chạy kiểm tra: `python -m unittest discover -s tests -v` và `node --check app.js`. Bộ kiểm tra HTTP bao gồm đủ 15 tình huống lỗi, ca đối chứng BR-06, chuỗi nhiều lệnh, thiếu bước, giá trị quan sát sai, lựa chọn mong đợi sai, truy vấn toàn bảng, lượt cũ và thao tác bị từ chối.

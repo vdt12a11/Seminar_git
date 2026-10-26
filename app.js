@@ -4,7 +4,7 @@ let state;
 let busy = false;
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const localTime = value => new Date(value.replace(' ', 'T') + 'Z').toLocaleString('vi-VN');
-const verdicts = {confirmed:'Đã xác nhận', needs_evidence:'Cần thêm bằng chứng', duplicate:'Đã ghi nhận trước đó'};
+const verdicts = {confirmed:'Đã xác nhận', verified:'Đã xác minh quy tắc', needs_evidence:'Cần thêm bằng chứng', duplicate:'Đã ghi nhận trước đó'};
 editor.value = 'SELECT * FROM Guest;';
 function updateLines() { $('#line-numbers').textContent = editor.value.split('\n').map((_, i) => i + 1).join('\n'); }
 editor.addEventListener('input', updateLines); updateLines();
@@ -145,7 +145,22 @@ $('#requirement').addEventListener('change', () => {
   $('#target-label').textContent = 'ID bản ghi hoặc booking';
   $('#observed-label').textContent = 'Giá trị quan sát';
   $('#evidence-help').textContent = 'Nộp đủ thao tác ghi liên quan trực tiếp đến lỗi; có thể kèm lệnh ghi khác đã chạy trong cùng lượt. Thứ tự dán không quan trọng. SELECT phải lọc đúng bản ghi liên quan. Khi đối chiếu hai bản ghi cùng loại, có thể trả hai dòng với ID rõ ràng; trường hợp khác cần đủ dữ liệu cần so sánh trên cùng dòng.';
-  $('#observed').value = ''; $('#expected').value = ''; $('#report-feedback').textContent = '';
+  if ($('#requirement').value === 'BR-09') {
+    $('#target-label').textContent = 'ID booking mới';
+    $('#observed-label').textContent = 'Số cột snapshot tìm thấy';
+    $('#evidence-help').textContent = 'Tạo một booking hợp lệ theo giá phòng hiện tại, sau đó đổi giá chính căn phòng đó. SELECT phải trả về booking, tổng tiền đã lưu, giá phòng hiện tại và số cột lưu đơn giá tại thời điểm đặt trong schema (dùng pragma_table_info). Nhập ID booking và số cột snapshot quan sát được.';
+    $('#expected').querySelector('option[value="derive"]').textContent = 'Giữ đơn giá và tổng tiền đã áp dụng lúc đặt';
+  } else if ($('#requirement').value === 'BR-06') {
+    $('#target-label').textContent = 'ID booking (0 nếu bị từ chối)';
+    $('#observed-label').textContent = 'Số dòng được lưu';
+    $('#evidence-help').textContent = 'Thử INSERT booking tham chiếu guest_id hoặc room_id không tồn tại. Nếu khóa ngoại từ chối lệnh, chạy SELECT theo booking_code để xác nhận không có dòng nào được lưu. BR-06 hiện được bảo vệ đúng nên báo cáo chỉ xác minh quy tắc, không cộng điểm bug.';
+  } else {
+    $('#expected').querySelector('option[value="derive"]').textContent = 'Tính và lưu giá trị đúng theo quy tắc';
+  }
+  $('#observed').value = $('#requirement').value === 'BR-06' ? '0' : '';
+  $('#target-id').value = $('#requirement').value === 'BR-06' ? '0' : '';
+  $('#expected').value = $('#requirement').value === 'BR-09' ? 'derive' : $('#requirement').value === 'BR-06' ? 'reject' : '';
+  $('#report-feedback').textContent = '';
 });
 $('#report-form').addEventListener('submit', async e => {
   e.preventDefault(); if (busy || !state) return; setBusy(true);

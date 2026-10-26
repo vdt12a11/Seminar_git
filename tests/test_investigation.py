@@ -37,7 +37,7 @@ class Player:
         return result
 
     def report(self, rule, mutations, evidence, target, observed, **overrides):
-        expected = 'synchronize' if rule == 'BR-13' else 'derive' if rule in ('BR-07','BR-10','BR-11') else 'reject'
+        expected = 'synchronize' if rule == 'BR-13' else 'derive' if rule in ('BR-07','BR-09','BR-10','BR-11') else 'reject'
         payload = dict(requirement=rule,mutation_sql='\n'.join(mutations),evidence_sql=evidence,
             target_id=str(target),observed=str(observed),expected=expected)
         payload.update(overrides)
@@ -84,6 +84,9 @@ class HotelScoringTests(unittest.TestCase):
              'SELECT booking_id,nights,CAST(julianday(check_out)-julianday(check_in) AS INTEGER) AS actual_nights FROM Booking WHERE booking_id=3;',3,'2'),
             ('BR-08', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-OVERLAP',1,1,'2026-11-04','2026-11-06',2,0,2000000);"],
              'SELECT b.booking_id,b.room_id,b.check_in,b.check_out,o.booking_id AS other_id,o.check_in AS other_check_in,o.check_out AS other_check_out FROM Booking b JOIN Booking o ON b.room_id=o.room_id AND b.booking_id<>o.booking_id AND b.check_in<o.check_out AND o.check_in<b.check_out WHERE b.booking_id=3;',3,'1'),
+            ('BR-09', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount,status) VALUES ('BR09-RESET-20261027',1,1,'2026-11-10','2026-11-12',2,0,2000000,'BOOKED');",
+                       'UPDATE Room SET price_per_night=1500000 WHERE room_id=1;'],
+             "SELECT b.booking_id,b.booking_code,b.nights,b.total_amount,r.price_per_night AS current_room_price,(SELECT COUNT(*) FROM pragma_table_info('Booking') WHERE lower(name) LIKE '%price%') AS snapshot_price_columns FROM Booking b JOIN Room r ON r.room_id=b.room_id WHERE b.booking_code='BR09-RESET-20261027';",3,'0'),
             ('BR-10', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-DISCOUNT',1,2,'2026-11-15','2026-11-18',3,0,4800000);"],
              'SELECT booking_id,nights,discount_rate FROM Booking WHERE booking_id=3;',3,'0'),
             ('BR-11', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-TOTAL',1,2,'2026-11-15','2026-11-16',1,0,100);"],
@@ -92,6 +95,10 @@ class HotelScoringTests(unittest.TestCase):
              'SELECT b.booking_id,b.total_amount,sum(p.amount) AS paid_total FROM Booking b JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=1 GROUP BY b.booking_id;',1,'2800000'),
             ('BR-13', ['UPDATE Booking SET total_amount=4000000 WHERE booking_id=2;'],
              'SELECT b.booking_id,b.total_amount,sum(p.amount) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=2 GROUP BY b.booking_id;',2,'PAID'),
+            ('BR-13', ["UPDATE Booking SET status='BOOKED' WHERE booking_id=2;"],
+             'SELECT b.booking_id,b.total_amount,coalesce(sum(p.amount),0) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=2 GROUP BY b.booking_id;',2,'BOOKED'),
+            ('BR-13', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-ZERO-TOTAL',1,2,'2027-01-01','2027-01-02',1,0,0);"],
+             'SELECT b.booking_id,b.total_amount,coalesce(sum(p.amount),0) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=3 GROUP BY b.booking_id;',3,'BOOKED'),
             ('BR-14', ["UPDATE Booking SET status='CANCELLED' WHERE booking_id=1;",
                         'INSERT INTO Payment(booking_id,amount) VALUES (1,100);'],
              'SELECT p.payment_id,p.booking_id,p.amount,b.status FROM Payment p JOIN Booking b ON b.booking_id=p.booking_id WHERE p.payment_id=3;',3,'100'),
@@ -108,6 +115,43 @@ class HotelScoringTests(unittest.TestCase):
                 self.assertEqual(outcome['verdict'],'confirmed',outcome)
                 self.assertGreaterEqual(len(outcome['mutation_ids']),1)
         self.assertEqual(p.call('/api/state')['score'],len(cases)*100)
+
+    def test_br06_foreign_key_control_is_verified_without_bug_points(self):
+        p = Player(self.base)
+        mutation = "INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('BR06-NO-GUEST',9999,1,'2027-01-01','2027-01-02',1,0,1000000);"
+        failed = p.call('/api/query', {'sql':mutation})
+        self.assertIn('FOREIGN KEY', failed.get('error',''))
+        proof = "SELECT booking_id,booking_code FROM Booking WHERE booking_code='BR06-NO-GUEST';"
+        self.assertEqual(p.sql(proof)['rows'],[])
+        result = p.report('BR-06',[mutation],proof,0,0)
+        self.assertEqual(result['verdict'],'verified',result)
+        self.assertEqual(p.call('/api/state')['score'],0)
+
+    def test_three_br13_source_cases_are_independently_scoreable(self):
+        p = Player(self.base)
+        cases = [
+            ("UPDATE Booking SET total_amount=4000000 WHERE booking_id=2;",
+             'SELECT b.booking_id,b.total_amount,coalesce(sum(p.amount),0) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=2 GROUP BY b.booking_id;',2,'PAID'),
+            ("UPDATE Booking SET status='PAID' WHERE booking_id=1;",
+             'SELECT b.booking_id,b.total_amount,coalesce(sum(p.amount),0) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=1 GROUP BY b.booking_id;',1,'PAID'),
+            ("INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-ZERO-TOTAL',1,2,'2027-01-01','2027-01-02',1,0,0);",
+             'SELECT b.booking_id,b.total_amount,coalesce(sum(p.amount),0) AS paid_total,b.status FROM Booking b LEFT JOIN Payment p ON p.booking_id=b.booking_id WHERE b.booking_id=3 GROUP BY b.booking_id;',3,'BOOKED'),
+        ]
+        for mutation, proof, target, observed in cases:
+            p.sql(mutation); p.sql(proof)
+            result = p.report('BR-13',[mutation],proof,target,observed)
+            self.assertEqual(result['verdict'],'confirmed',result)
+        self.assertEqual(p.call('/api/state')['score'],300)
+
+    def test_room_price_change_is_br09_not_br11_without_booking_rewrite(self):
+        p = Player(self.base)
+        booking = "INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-PRICE-SNAPSHOT',1,1,'2027-01-01','2027-01-02',1,0,1000000);"
+        price = 'UPDATE Room SET price_per_night=2000000 WHERE room_id=1;'
+        proof = 'SELECT b.booking_id,b.nights,b.discount_rate,b.total_amount,r.price_per_night FROM Booking b JOIN Room r ON r.room_id=b.room_id WHERE b.booking_id=3;'
+        p.sql(booking); p.sql(price); p.sql(proof)
+        outcome = p.report('BR-11',[booking,price],proof,3,1000000)
+        self.assertEqual(outcome['verdict'],'needs_evidence',outcome)
+        self.assertEqual(p.call('/api/state')['score'],0)
 
     def test_missing_step_wrong_value_and_generic_select_rejected(self):
         p = Player(self.base)

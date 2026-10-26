@@ -19,10 +19,13 @@ RULES = {
     'inactive_room': ('BR-05', 'Đặt phòng không hoạt động', 'Booking'),
     'overlap': ('BR-08', 'Hai đặt phòng chồng lấn', 'Booking'),
     'wrong_nights': ('BR-07', 'Số đêm không khớp ngày', 'Booking'),
+    'missing_price_snapshot': ('BR-09', 'Không lưu đơn giá tại thời điểm đặt', 'Booking'),
     'wrong_discount': ('BR-10', 'Giảm giá sai chính sách', 'Booking'),
     'wrong_total': ('BR-11', 'Tổng tiền đặt phòng sai', 'Booking'),
     'overpayment': ('BR-12', 'Thanh toán vượt tổng tiền', 'Payment'),
-    'wrong_status': ('BR-13', 'Trạng thái không khớp thanh toán', 'Booking'),
+    'wrong_status_direct': ('BR-13', 'Sửa trực tiếp trạng thái không khớp thanh toán', 'Booking'),
+    'wrong_status_total': ('BR-13', 'Đổi tổng tiền nhưng trạng thái không đồng bộ', 'Booking'),
+    'wrong_status_zero': ('BR-13', 'Booking 0 đồng không ở trạng thái PAID', 'Booking'),
     'cancelled_payment': ('BR-14', 'Đặt phòng đã huỷ vẫn nhận thanh toán', 'Payment'),
 }
 
@@ -98,6 +101,15 @@ def snapshot(conn):
 
 def execute_query(conn, sql):
     conn.execute('PRAGMA foreign_keys=ON')
+    # Provide a read-only, portable table-valued view of Booking's schema.
+    # Some Python-bundled SQLite builds do not expose pragma_table_info() as a
+    # table-valued function, so this TEMP table keeps the classroom query stable.
+    conn.execute('CREATE TEMP TABLE pragma_table_info(name TEXT)')
+    conn.executemany('INSERT INTO pragma_table_info VALUES (?)',
+                     [(row[1],) for row in conn.execute("PRAGMA table_info('Booking')")])
+    conn.commit()
+    sql = re.sub(r"\bpragma_table_info\s*\(\s*(['\"]?)Booking\1\s*\)",
+                 'pragma_table_info', sql, flags=re.IGNORECASE)
     reads, writes = set(), set()
     allowed = {t.lower(): t for t in TABLES}
     def authorize(action, table, column, db, source):
@@ -106,6 +118,9 @@ def execute_query(conn, sql):
             return sqlite3.SQLITE_OK
         if action == sqlite3.SQLITE_READ and name and db == 'main':
             reads.add((name, column))
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_READ and (table or '').lower() == 'pragma_table_info' and column == 'name':
+            reads.add(('pragma_table_info', column))
             return sqlite3.SQLITE_OK
         if action == sqlite3.SQLITE_FUNCTION:
             return sqlite3.SQLITE_DENY if (column or '').lower() in ('load_extension','writefile','readfile') else sqlite3.SQLITE_OK
@@ -166,6 +181,7 @@ def email_valid(value):
 def witnesses(state):
     """Independent oracle; never derives a verdict from a player's SELECT alone."""
     out = {key: {} for key in RULES}
+    out['wrong_status'] = {}  # Shared predicate; scoring separates the three source scenarios.
     guests = {r['guest_id']: r for r in state['Guest']}
     rooms = {r['room_id']: r for r in state['Room']}
     room_types = {r['type_name'] for r in state['RoomType']}
@@ -225,6 +241,116 @@ def witnesses(state):
     return out
 
 
+def price_snapshot_witness(target, interval, final_state):
+    """Find a new booking priced correctly before its room price later changes."""
+    created_booking = None
+    original_price = None
+    selected = []
+    for step in interval:
+        before, after = json.loads(step['before_state']), json.loads(step['after_state'])
+        writes = set(json.loads(step['writes']))
+        old_bookings = {r['booking_id']: r for r in before['Booking']}
+        booking = next((r for r in after['Booking'] if r['booking_id'] == target), None)
+        if booking and target not in old_bookings and 'Booking' in writes:
+            room = next((r for r in before['Room'] if r['room_id'] == booking['room_id']), None)
+            if not room:
+                continue
+            expected_at_creation = money(Decimal(str(booking['nights'])) *
+                Decimal(str(room['price_per_night'])) * (1 - Decimal(str(booking['discount_rate']))))
+            if money(booking['total_amount']) != expected_at_creation:
+                continue
+            created_booking = booking
+            original_price = room['price_per_night']
+            selected = [step]
+            continue
+        if not created_booking or 'Room' not in writes:
+            continue
+        old_rooms = {r['room_id']: r for r in before['Room']}
+        new_room = next((r for r in after['Room'] if r['room_id'] == created_booking['room_id']), None)
+        old_room = old_rooms.get(created_booking['room_id'])
+        if new_room and old_room and new_room['price_per_night'] != old_room['price_per_night']:
+            selected.append(step)
+
+    if not created_booking or len(selected) < 2:
+        return None, []
+    booking = next((r for r in final_state['Booking'] if r['booking_id'] == target), None)
+    room = next((r for r in final_state['Room'] if r['room_id'] == created_booking['room_id']), None)
+    if not booking or not room or booking != created_booking:
+        return None, []
+    current_total = money(Decimal(str(booking['nights'])) * Decimal(str(room['price_per_night'])) *
+                          (1 - Decimal(str(booking['discount_rate']))))
+    if room['price_per_night'] == original_price or money(booking['total_amount']) == current_total:
+        return None, []
+    return ({**booking, 'price_per_night': room['price_per_night'],
+             'price_at_creation': original_price, 'snapshot_column_count': 0,
+             'expected_total_current': float(current_total)}, selected)
+
+
+def status_scenario_matches(key, target, interval, final_state):
+    """Distinguish the three independently documented BR-13 defects by cause."""
+    final = next((r for r in final_state['Booking'] if r['booking_id'] == target), None)
+    if not final or target not in witnesses(final_state)['wrong_status']:
+        return False
+    for step in interval:
+        before, after = json.loads(step['before_state']), json.loads(step['after_state'])
+        old = next((r for r in before['Booking'] if r['booking_id'] == target), None)
+        new = next((r for r in after['Booking'] if r['booking_id'] == target), None)
+        if not new or 'Booking' not in json.loads(step['writes']):
+            continue
+        old_payments = [p for p in before['Payment'] if p['booking_id'] == target]
+        new_payments = [p for p in after['Payment'] if p['booking_id'] == target]
+        if key == 'wrong_status_zero':
+            if old is None and new['total_amount'] == 0 and new['status'] == 'BOOKED' and not new_payments:
+                return True
+        elif old is not None and old_payments == new_payments:
+            if key == 'wrong_status_direct' and new['status'] != old['status'] and new['total_amount'] == old['total_amount']:
+                return True
+            if (key == 'wrong_status_total' and new['total_amount'] != old['total_amount'] and
+                    new['status'] == old['status'] and
+                    target not in witnesses(before)['wrong_status'] and
+                    target in witnesses(after)['wrong_status']):
+                return True
+    return False
+
+
+def verify_br06_reference(store, history, boundary, statements, evidence_sql, target, observed):
+    """Confirm the enforced FK rejects an orphan booking; this is not a scored bug."""
+    if target != 0 or observed != '0':
+        return None
+    failed = [h for h in history if h['id'] > boundary and
+              'FOREIGN KEY constraint failed' in json.loads(h['result']).get('error', '') and
+              re.match(r'(?is)^INSERT\s+INTO\s+Booking\b', canonical_sql(h['sql']))]
+    if not failed:
+        return None
+    submitted_counts = Counter(statements)
+    candidates = [h for h in history if h['id'] > boundary and
+                  canonical_sql(h['sql']) == evidence_sql and not json.loads(h['writes']) and
+                  'error' not in json.loads(h['result'])]
+    for evidence in reversed(candidates):
+        code_match = re.search(r"(?is)\bbooking_code\s*=\s*'((?:''|[^'])*)'", evidence_sql)
+        if not code_match:
+            continue
+        code = code_match.group(1).replace("''", "'")
+        code_sql = code.replace("'", "''")
+        matching_failure = next((h for h in reversed(failed)
+                                 if code_sql in canonical_sql(h['sql']) and h['id'] < evidence['id']), None)
+        if (not matching_failure or
+                submitted_counts[canonical_sql(matching_failure['sql'])] < 1):
+            continue
+        result = json.loads(evidence['result'])
+        interval_statements = Counter(canonical_sql(h['sql']) for h in history
+                                      if boundary < h['id'] <= evidence['id'])
+        if any(count > interval_statements[sql] for sql, count in submitted_counts.items()):
+            continue
+        reads = set(map(tuple, json.loads(evidence['reads'])))
+        if (result.get('rows') == [] and {'booking_id','booking_code'} <= set(result.get('columns',[])) and
+                {('Booking','booking_id'),('Booking','booking_code')} <= reads):
+            return {'verdict':'verified','title':'BR-06 được khóa ngoại bảo vệ',
+                    'mutation_ids':[matching_failure['id']], 'evidence_id':evidence['id'],
+                    'message':'Booking tham chiếu khách/phòng không tồn tại đã bị khóa ngoại từ chối và không được lưu. Đây là quy tắc hoạt động đúng, không phải bug nên không cộng điểm.'}
+    return None
+
+
 def public_history(row):
     result = json.loads(row['result'])
     return {'id': row['id'], 'sql': row['sql'], 'created': row['created'],
@@ -263,10 +389,13 @@ def proof_matches(key, record, rows, reads, target):
         'inactive_room': ('booking_id', 'room_id', 'active'),
         'overlap': ('booking_id', 'room_id', 'check_in', 'check_out', 'other_id', 'other_check_in', 'other_check_out'),
         'wrong_nights': ('booking_id', 'nights', 'actual_nights'),
+        'missing_price_snapshot': ('booking_id', 'total_amount', 'price_per_night', 'snapshot_column_count'),
         'wrong_discount': ('booking_id', 'nights', 'discount_rate'),
         'wrong_total': ('booking_id', 'nights', 'discount_rate', 'total_amount', 'price_per_night'),
         'overpayment': ('booking_id', 'total_amount', 'paid_total'),
-        'wrong_status': ('booking_id', 'total_amount', 'paid_total', 'status'),
+        'wrong_status_direct': ('booking_id', 'total_amount', 'paid_total', 'status'),
+        'wrong_status_total': ('booking_id', 'total_amount', 'paid_total', 'status'),
+        'wrong_status_zero': ('booking_id', 'total_amount', 'paid_total', 'status'),
         'cancelled_payment': ('payment_id', 'booking_id', 'amount', 'status'),
     }[key]
     needed_reads = {
@@ -277,15 +406,27 @@ def proof_matches(key, record, rows, reads, target):
         'inactive_room': {('Booking','booking_id'),('Booking','room_id'),('Room','active')},
         'overlap': {('Booking','booking_id'),('Booking','room_id'),('Booking','check_in'),('Booking','check_out')},
         'wrong_nights': {('Booking','booking_id'),('Booking','nights'),('Booking','check_in'),('Booking','check_out')},
+        'missing_price_snapshot': {('Booking','booking_id'),('Booking','total_amount'),
+                                   ('Room','price_per_night'),('pragma_table_info','name')},
         'wrong_discount': {('Booking','booking_id'),('Booking','nights'),('Booking','discount_rate')},
         'wrong_total': {('Booking','booking_id'),('Booking','nights'),('Booking','discount_rate'),
                         ('Booking','total_amount'),('Room','price_per_night')},
         'overpayment': {('Booking','booking_id'),('Booking','total_amount'),('Payment','amount')},
-        'wrong_status': {('Booking','booking_id'),('Booking','total_amount'),('Booking','status'),('Payment','amount')},
+        'wrong_status_direct': {('Booking','booking_id'),('Booking','total_amount'),('Booking','status'),('Payment','amount')},
+        'wrong_status_total': {('Booking','booking_id'),('Booking','total_amount'),('Booking','status'),('Payment','amount')},
+        'wrong_status_zero': {('Booking','booking_id'),('Booking','total_amount'),('Booking','status'),('Payment','amount')},
         'cancelled_payment': {('Booking','booking_id'),('Booking','status'),
                               ('Payment','payment_id'),('Payment','amount')},
     }[key]
     if not needed_reads <= set(map(tuple, reads)):
+        return False
+    if key == 'missing_price_snapshot':
+        for row in rows:
+            price = row.get('price_per_night', row.get('current_room_price'))
+            snapshot_count = row.get('snapshot_column_count', row.get('snapshot_price_columns'))
+            if (row.get('booking_id') == target and row.get('total_amount') == record['total_amount'] and
+                    price == record['price_per_night'] and snapshot_count == 0):
+                return True
         return False
     if key == 'duplicate_email':
         # Accept either a single joined row with other_id, or two rows that
@@ -335,6 +476,24 @@ def proof_matches(key, record, rows, reads, target):
 
 def causal_step_valid(key, selected, target):
     """Check the timing of rules that apply only when a row is newly created."""
+    if key == 'wrong_total':
+        last_room_price_change = -1
+        last_booking_change = -1
+        booking = None
+        for index, step in enumerate(selected):
+            before, after = json.loads(step['before_state']), json.loads(step['after_state'])
+            old_booking = next((r for r in before['Booking'] if r['booking_id'] == target), None)
+            new_booking = next((r for r in after['Booking'] if r['booking_id'] == target), None)
+            if new_booking and new_booking != old_booking and 'Booking' in json.loads(step['writes']):
+                last_booking_change = index
+                booking = new_booking
+            room_id = (new_booking or old_booking or booking or {}).get('room_id')
+            if room_id and 'Room' in json.loads(step['writes']):
+                old_room = next((r for r in before['Room'] if r['room_id'] == room_id), None)
+                new_room = next((r for r in after['Room'] if r['room_id'] == room_id), None)
+                if old_room and new_room and old_room['price_per_night'] != new_room['price_per_night']:
+                    last_room_price_change = index
+        return last_booking_change > last_room_price_change
     if key not in ('inactive_room','cancelled_payment'):
         return True
     for step in selected:
@@ -388,7 +547,7 @@ def relevant_write_ids(key, target, record, writes_after_boundary):
         dependencies = {'Booking': {target}, 'Room': {record['room_id']}}
     elif key == 'overpayment':
         dependencies = {'Payment': None}
-    elif key == 'wrong_status':
+    elif key.startswith('wrong_status_') or key == 'wrong_status':
         dependencies = {'Booking': {target}, 'Payment': None}
     else:  # cancelled_payment
         dependencies = {'Booking': {record['booking_id']}, 'Payment': {target}}
@@ -415,7 +574,8 @@ def relevant_write_ids(key, target, record, writes_after_boundary):
     # first, retain that prerequisite in the submitted chain. Existing parent rows
     # remain context and unrelated guest inserts are still excluded.
     booking_id = target if key in ('inactive_room', 'overlap', 'wrong_nights', 'wrong_discount',
-                                   'wrong_total', 'wrong_status') else None
+                                   'wrong_total', 'wrong_status', 'wrong_status_direct',
+                                   'wrong_status_total', 'wrong_status_zero') else None
     if booking_id is not None:
         booking = next((r for r in json.loads(writes_after_boundary[-1]['after_state'])['Booking']
                         if r['booking_id'] == booking_id), None)
@@ -432,15 +592,17 @@ def verify_report(store, player, round_no, payload, group_number):
     def fail(message):
         return {'verdict': 'needs_evidence', 'message': message}
     rule = payload.get('requirement')
-    if rule not in {entry[0] for entry in RULES.values()}:
+    if rule not in {entry[0] for entry in RULES.values()} | {'BR-06'}:
         return fail('Chọn quy tắc nghiệp vụ có lỗi tự động chấm.')
     target_keys = [key for key,(req,_,_) in RULES.items() if req == rule]
-    already = store.execute('SELECT title FROM group_discoveries WHERE group_number=? AND bug_key IN ('+
-        ','.join('?' for _ in target_keys)+') LIMIT 1', (group_number,*target_keys)).fetchone()
+    already = (None if rule in ('BR-06','BR-13') else store.execute(
+        'SELECT title FROM group_discoveries WHERE group_number=? AND bug_key IN ('+
+        ','.join('?' for _ in target_keys)+') LIMIT 1', (group_number,*target_keys)).fetchone())
     if already:
         return {'verdict':'duplicate','title':already['title'],
                 'message':'Nhóm đã được ghi nhận lỗi này; không cộng điểm lần nữa.'}
-    expected_by_rule = {'BR-13':'synchronize','BR-07':'derive','BR-10':'derive','BR-11':'derive'}
+    expected_by_rule = {'BR-13':'synchronize','BR-07':'derive','BR-09':'derive',
+                        'BR-10':'derive','BR-11':'derive'}
     if payload.get('expected') != expected_by_rule.get(rule, 'reject'):
         return fail('Chọn kết quả mong đợi theo đặc tả.')
     statements = split_statements(payload.get('mutation_sql'))
@@ -462,6 +624,10 @@ def verify_report(store, player, round_no, payload, group_number):
             continue
         if previous_evidence in history_ids:
             boundary = max(boundary, previous_evidence)
+    if rule == 'BR-06':
+        verified = verify_br06_reference(store, history, boundary, statements, evidence_sql,
+                                         target, str(payload.get('observed','')).strip())
+        return verified or fail('Để xác minh BR-06, hãy thử INSERT booking với khách/phòng không tồn tại rồi SELECT theo booking_code để chứng minh dòng không được lưu. Lỗi này không cộng điểm vì khóa ngoại đang bảo vệ đúng quy tắc.')
     candidates = [h for h in history if canonical_sql(h['sql']) == evidence_sql and
                   h['id'] > boundary and not json.loads(h['writes']) and
                   'error' not in json.loads(h['result']) and json.loads(h['result']).get('rows')]
@@ -480,10 +646,24 @@ def verify_report(store, player, round_no, payload, group_number):
         reads = json.loads(evidence['reads'])
         baseline_state = json.loads(interval[0]['before_state']) if interval else json.loads(evidence['before_state'])
         for key, (requirement, title, _) in RULES.items():
-            if requirement != rule or target not in at_evidence[key]:
+            if requirement != rule:
                 continue
-            record = at_evidence[key][target]
-            selected = relevant_write_ids(key, target, record, writes)
+            if key == 'missing_price_snapshot':
+                record, selected = price_snapshot_witness(
+                    target, interval, json.loads(evidence['after_state']))
+                if record is None:
+                    continue
+            elif key.startswith('wrong_status_'):
+                if target not in at_evidence['wrong_status'] or not status_scenario_matches(
+                        key, target, interval, json.loads(evidence['after_state'])):
+                    continue
+                record = at_evidence['wrong_status'][target]
+                selected = relevant_write_ids('wrong_status', target, record, writes)
+            else:
+                if target not in at_evidence[key]:
+                    continue
+                record = at_evidence[key][target]
+                selected = relevant_write_ids(key, target, record, writes)
             submitted_counts = Counter(statements)
             required_counts = Counter(canonical_sql(h['sql']) for h in selected)
             logged_counts = Counter(canonical_sql(h['sql']) for h in interval
@@ -492,18 +672,21 @@ def verify_report(store, player, round_no, payload, group_number):
                     any(count > logged_counts[sql] for sql, count in submitted_counts.items())):
                 continue
             before = witnesses(baseline_state)
-            if target in before[key]:
+            baseline_key = 'wrong_status' if key.startswith('wrong_status_') else key
+            if key != 'missing_price_snapshot' and target in before[baseline_key]:
                 continue
             # Confirm the violation first appears during this run, then stays visible
             # in the frozen state captured by the player's SELECT.
-            appeared = False
+            appeared = key == 'missing_price_snapshot' or (key.startswith('wrong_status_') and
+                status_scenario_matches(key, target, interval, json.loads(evidence['after_state'])))
             previous_state = baseline_state
-            for step in interval:
-                current_state = json.loads(step['after_state'])
-                if target not in witnesses(previous_state)[key] and target in witnesses(current_state)[key]:
-                    appeared = True
-                    break
-                previous_state = current_state
+            if key != 'missing_price_snapshot' and not key.startswith('wrong_status_'):
+                for step in interval:
+                    current_state = json.loads(step['after_state'])
+                    if target not in witnesses(previous_state)[key] and target in witnesses(current_state)[key]:
+                        appeared = True
+                        break
+                    previous_state = current_state
             if not appeared or not causal_step_valid(key, interval, target):
                 continue
             if not proof_matches(key, record, rows, reads, target):
@@ -513,7 +696,9 @@ def verify_report(store, player, round_no, payload, group_number):
                 'invalid_room_type':'room_type','inactive_room':'active','overlap':'other_id',
                 'wrong_nights':'actual_nights','wrong_discount':'discount_rate',
                 'wrong_total':'total_amount','overpayment':'paid_total',
-                'wrong_status':'status','cancelled_payment':'amount',
+                'missing_price_snapshot':'snapshot_column_count',
+                'wrong_status_direct':'status','wrong_status_total':'status',
+                'wrong_status_zero':'status','cancelled_payment':'amount',
             }[key]
             observed = str(payload.get('observed','')).strip()
             actual_value = len(record['full_name'].strip()) if key == 'blank_name' else record[observed_field]

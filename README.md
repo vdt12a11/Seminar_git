@@ -24,7 +24,7 @@ Nút **Nạp lại dữ liệu mẫu** mở lượt thử mới và giữ điể
 
 Nút **Thoát nhóm** giải phóng chỗ đang giữ và đưa trình duyệt về trang chọn nhóm. Điểm và lỗi đã xác nhận được lưu theo nhóm; chọn lại nhóm cũ sẽ tiếp tục điểm cũ trên dữ liệu SQL sạch. Các lỗi đã ghi nhận không được cộng điểm lần hai. Thao tác thử SQL và lịch sử riêng của phiên cũ không chuyển sang nhóm mới.
 
-Chi tiết chấm, 12 dạng lỗi tự chấm và giới hạn: [SCORING.md](./SCORING.md). Đặc tả nguồn: [source/business-requirements.md](./source/business-requirements.md).
+Chi tiết chấm, 15 tình huống lỗi tự chấm cùng ca đối chứng BR-06 và giới hạn: [SCORING.md](./SCORING.md). Đặc tả nguồn: [source/business-requirements.md](./source/business-requirements.md).
 
 ## Dashboard
 
