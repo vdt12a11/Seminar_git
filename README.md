@@ -17,7 +17,7 @@ Mở <http://127.0.0.1:8000/>. Nếu server bản demo đang chiếm cổng 8000
 1. Chọn một trong 11 nhóm còn trống. Cùng trình duyệt có thể mở lại phiên sau crash; nếu mất cookie, giáo viên dùng dashboard để kick phiên cũ rồi chọn lại.
 2. Đọc 14 quy tắc BR trên trang, xem schema và dữ liệu mẫu. Mỗi lần chạy một câu SQLite. Dữ liệu ban đầu hợp lệ.
 3. Dùng các câu ghi để tạo tình huống kiểm thử, rồi chạy `SELECT` lọc đúng dòng và trả về ID cùng các cột chứng minh lỗi.
-4. Trong **Nộp phát hiện**, dán tất cả câu ghi đã chạy theo đúng thứ tự kể từ đầu lượt hoặc lần báo cáo được xác nhận trước, mỗi câu kết thúc bằng `;`. Dán một câu `SELECT` đã chạy sau đó. Nhập ID, giá trị quan sát, kết quả mong đợi, thực tế và kết luận.
+4. Trong **Nộp phát hiện**, dán tất cả câu ghi đã chạy theo đúng thứ tự kể từ đầu lượt hoặc lần báo cáo được xác nhận trước, mỗi câu kết thúc bằng `;`. Dán một câu `SELECT` đã chạy sau đó. Chọn quy tắc bị vi phạm và nhập ID, giá trị quan sát, kết quả mong đợi.
 5. Server đối chiếu lịch sử, trạng thái trước/sau và kết quả đọc. Chỉ báo cáo xác nhận mới được 100 điểm. Chạy SQL đơn lẻ không tự cộng điểm.
 
 Nút **Nạp lại dữ liệu mẫu** mở lượt thử mới và giữ điểm. Nếu muốn thử một ca nhiều bước (ví dụ tạo khách, tạo booking, thêm payment), chạy đủ từng câu trong editor rồi nộp đủ chuỗi trong form. Không được bỏ qua câu tạo dữ liệu nền.

@@ -8,7 +8,7 @@ Game chạy một bản chuyển có chủ đích của schema SQL Server sang S
 2. Ô **Chuỗi SQL thao tác** nhận các câu ghi đã chạy, theo thứ tự và ngăn cách bằng `;`. Server yêu cầu khớp **mọi câu ghi thành công** từ đầu lượt hoặc từ báo cáo đã xác nhận gần nhất đến câu `SELECT` được nộp. Không thể bỏ qua lệnh tạo dữ liệu nền trong chuỗi. Có thể chạy nhiều `SELECT` để điều tra, nhưng đơn nộp chọn một `SELECT` cuối để chứng minh.
 3. Server so sánh trạng thái trước bước ghi đầu và sau bước ghi cuối bằng bộ quy tắc độc lập trong `witnesses()`. Dòng vi phạm phải **mới xuất hiện** sau chuỗi ghi và còn tồn tại lúc `SELECT` kiểm chứng. Báo cáo không được cộng điểm chỉ vì dữ liệu cũ đã sai.
 4. `SELECT` phải được chạy trong cùng nhóm/lượt, sau các thao tác ghi, không có ghi xen giữa; kết quả phải chứa ID và các cột cụ thể của dòng vi phạm, với giá trị khớp snapshot server. Server kiểm tra bảng và cột thực sự được đọc. ID, giá trị quan sát và kết quả mong đợi trong form cũng phải khớp.
-5. Mỗi dạng lỗi được tối đa 100 điểm một lần cho mỗi nhóm. `actual` và `conclusion` được lưu để giáo viên đánh giá lời giải thích; server chỉ kiểm tra độ dài, **không hiểu ngữ nghĩa tiếng Việt**.
+5. Mỗi dạng lỗi được tối đa 100 điểm một lần cho mỗi nhóm. Không có ô diễn giải tự do: chuỗi thao tác, `SELECT`, ID, giá trị quan sát và quy tắc đã chọn là toàn bộ bằng chứng được chấm.
 
 Để bắt đầu chuỗi thử nghiệm mới không lẫn các thao tác ghi trước đó, dùng **Nạp lại dữ liệu mẫu**. Nút này giữ điểm đã được xác nhận nhưng thay database và mở lượt mới.
 
@@ -37,7 +37,7 @@ Hai mục trong danh sách nguồn được xem là phụ thuộc môi trường
 
 ## Giới hạn của chấm tự động
 
-- Bộ chấm xác minh giá trị có cấu trúc, không chứng minh rằng người chơi đã **hiểu** nguyên nhân. Giáo viên cần đọc phần kết luận nếu dùng làm điểm chính thức.
+- Bộ chấm xác minh giá trị có cấu trúc, không chứng minh rằng người chơi đã **hiểu** nguyên nhân. Nếu dùng làm điểm chính thức, giáo viên có thể yêu cầu nhóm giải thích trực tiếp cách họ tìm ra lỗi.
 - Một truy vấn có thể tạo biểu thức hoặc alias bằng giá trị cố định trong khi vẫn đọc các cột bắt buộc; bộ chấm đối chiếu kết quả với snapshot nhưng không phân tích ngữ nghĩa toàn bộ SQL. Đây là rủi ro còn lại của chấm tự động bằng SQL tự do.
 - Cú pháp SQLite không trùng hoàn toàn T-SQL: dùng `julianday` thay `DATEDIFF`, không dùng `GO`, `NVARCHAR` hay `dbo.` trong editor.
 - `total_amount` bằng 0 và chính sách giảm giá/giá ở các trạng thái bất thường có thể làm nhiều quy tắc cùng sai; chỉ quy tắc và dòng được chứng minh trong đơn mới nhận điểm. Trường hợp gây tranh cãi nên được giáo viên duyệt.

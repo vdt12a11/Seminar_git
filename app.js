@@ -46,7 +46,7 @@ function render() {
   $('#reports-list').innerHTML = state.reports.length ? state.reports.map(r => {
     const writeSql = r.report.mutation_sql || 'Chưa lưu câu lệnh.';
     const readSql = r.report.evidence_sql || state.history.find(h => h.id === Number(r.report.evidence_id))?.sql || 'Chưa lưu câu lệnh.';
-    return `<details class="submitted-report"><summary><span class="verdict ${r.verdict}">${verdicts[r.verdict]}</span><b>#${r.id} · ${escapeHtml(r.report.requirement)}</b><span>${escapeHtml(r.title || 'Báo cáo điều tra')}</span></summary><div class="history-content"><p>${escapeHtml(r.message)}</p><p><b>Bằng chứng:</b> thao tác #${escapeHtml((r.report.mutation_ids || []).join(', #'))} → kiểm chứng #${escapeHtml(r.report.evidence_id)} · ID ${escapeHtml(r.report.target_id)}</p><p><b>SQL thao tác:</b></p><pre>${escapeHtml(writeSql)}</pre><p><b>SQL kiểm chứng:</b></p><pre>${escapeHtml(readSql)}</pre><p><b>Thực tế:</b> ${escapeHtml(r.report.actual)}</p><p><b>Kết luận:</b> ${escapeHtml(r.report.conclusion)}</p></div></details>`;
+    return `<details class="submitted-report"><summary><span class="verdict ${r.verdict}">${verdicts[r.verdict]}</span><b>#${r.id} · ${escapeHtml(r.report.requirement)}</b><span>${escapeHtml(r.title || 'Báo cáo điều tra')}</span></summary><div class="history-content"><p>${escapeHtml(r.message)}</p><p><b>Bằng chứng:</b> thao tác #${escapeHtml((r.report.mutation_ids || []).join(', #'))} → kiểm chứng #${escapeHtml(r.report.evidence_id)} · ID ${escapeHtml(r.report.target_id)} · Quan sát: ${escapeHtml(r.report.observed)}</p><p><b>SQL thao tác:</b></p><pre>${escapeHtml(writeSql)}</pre><p><b>SQL kiểm chứng:</b></p><pre>${escapeHtml(readSql)}</pre></div></details>`;
   }).join('') : '<p class="empty-copy">Báo cáo và phản hồi xác minh sẽ được lưu tại đây.</p>';
 }
 try { localStorage.removeItem('query_room_group'); localStorage.removeItem('query_room_recovery'); } catch (_) {}
@@ -131,7 +131,7 @@ $('#requirement').addEventListener('change', () => {
 });
 $('#report-form').addEventListener('submit', async e => {
   e.preventDefault(); if (busy || !state) return; setBusy(true);
-  const payload = Object.fromEntries(['requirement','mutation-sql','evidence-sql','target-id','observed','expected','actual','conclusion'].map(id => [id.replaceAll('-', '_'), $('#' + id).value]));
+  const payload = Object.fromEntries(['requirement','mutation-sql','evidence-sql','target-id','observed','expected'].map(id => [id.replaceAll('-', '_'), $('#' + id).value]));
   try {
     const result = await api('/api/reports', payload);
     $('#report-feedback').className = `feedback ${result.verdict}`;

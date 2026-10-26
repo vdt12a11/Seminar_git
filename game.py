@@ -331,9 +331,6 @@ def verify_report(store, player, round_no, payload):
         if any(req == rule and title == item['title'] for req,title,_ in RULES.values()):
             return {'verdict':'duplicate','title':item['title'],
                     'message':'Lỗi này đã được ghi nhận cho nhóm; không cộng điểm lần nữa.'}
-    for field in ('actual','conclusion'):
-        if not isinstance(payload.get(field), str) or not 20 <= len(payload[field].strip()) <= 2000:
-            return fail('Thực tế và kết luận cần từ 20 đến 2000 ký tự mỗi phần.')
     expected_by_rule = {'BR-13':'synchronize','BR-07':'derive','BR-10':'derive','BR-11':'derive'}
     if payload.get('expected') != expected_by_rule.get(rule, 'reject'):
         return fail('Chọn kết quả mong đợi theo đặc tả.')

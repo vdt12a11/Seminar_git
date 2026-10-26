@@ -39,9 +39,7 @@ class Player:
     def report(self, rule, mutations, evidence, target, observed, **overrides):
         expected = 'synchronize' if rule == 'BR-13' else 'derive' if rule in ('BR-07','BR-10','BR-11') else 'reject'
         payload = dict(requirement=rule,mutation_sql='\n'.join(mutations),evidence_sql=evidence,
-            target_id=str(target),observed=str(observed),expected=expected,
-            actual='The database saved a row that violates the chosen business rule.',
-            conclusion='This concrete database row contradicts the stated hotel booking requirement.')
+            target_id=str(target),observed=str(observed),expected=expected)
         payload.update(overrides)
         return self.call('/api/reports',payload)
 
@@ -123,7 +121,11 @@ class HotelScoringTests(unittest.TestCase):
         generic = 'SELECT * FROM Booking;'
         p.sql(generic)
         self.assertEqual(p.report('BR-05',[setup,mutation],generic,3,0)['verdict'],'needs_evidence')
-        self.assertEqual(p.report('BR-05',[setup,mutation],proof,3,0)['verdict'],'confirmed')
+        self.assertEqual(p.report('BR-05',[setup,mutation],proof,3,0,
+                                  actual='nonsense',conclusion='nonsense')['verdict'],'confirmed')
+        saved = p.call('/api/state')['reports'][0]['report']
+        self.assertNotIn('actual',saved)
+        self.assertNotIn('conclusion',saved)
         self.assertEqual(p.report('BR-05',[setup,mutation],proof,3,0)['verdict'],'duplicate')
 
     def test_protected_rules_and_round_isolation(self):

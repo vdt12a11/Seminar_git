@@ -286,7 +286,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(200, {**result, 'history_id': cursor.lastrowid})
                 elif self.path == '/api/reports':
                     outcome = verify_report(store, self.player, player['round'], payload)
-                    saved_payload = dict(payload)
+                    saved_payload = {key: payload.get(key) for key in
+                                     ('requirement', 'mutation_sql', 'evidence_sql', 'target_id',
+                                      'observed', 'expected')}
                     if outcome.get('mutation_ids'):
                         saved_payload['mutation_ids'] = outcome['mutation_ids']
                         saved_payload['evidence_id'] = outcome['evidence_id']
