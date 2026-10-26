@@ -151,7 +151,7 @@ $('#requirement').addEventListener('change', () => {
 });
 $('#report-form').addEventListener('submit', async e => {
   e.preventDefault(); if (busy || !state) return; setBusy(true);
-  const payload = Object.fromEntries(['requirement','mutation-sql','evidence-sql','target-id','observed','expected','actual','conclusion'].map(id => [id.replaceAll('-', '_'), $('#' + id).value]));
+  const payload = Object.fromEntries(['requirement','mutation-sql','evidence-sql','target-id','observed','expected'].map(id => [id.replaceAll('-', '_'), $('#' + id).value]));
   try {
     const result = await api('/api/reports', payload);
     $('#report-feedback').className = `feedback ${result.verdict}`;

@@ -82,9 +82,6 @@ SELECT ..., COUNT(*) FROM bảng GROUP BY ...;</pre><p>Kiểm tra WHERE trước
         <p class="evidence-help" id="evidence-help">Hai câu SQL phải trùng với các câu đã chạy trong nhật ký phiên này. Bạn tự xác định lệnh nào gây vi phạm và viết truy vấn nào chứng minh kết quả.</p>
         <div class="form-pair"><label><span id="target-label">ID bản ghi</span><input id="target-id" type="number" step="1" required></label><label><span id="observed-label">Giá trị quan sát</span><input id="observed" maxlength="50" required></label></div>
         <label>Kết quả mong đợi<select id="expected" required><option value="">Chọn theo đặc tả…</option><option value="reject">Từ chối thao tác vi phạm; không lưu thay đổi</option><option value="synchronize">Chấp nhận thao tác và đồng bộ số đếm</option><option value="allow">Chấp nhận thao tác; giữ số đếm cũ</option></select></label>
-        <label>Thực tế quan sát được<textarea id="actual" minlength="20" maxlength="2000" rows="3" placeholder="Mô tả dữ liệu và kết quả thực tế trong bằng chứng…" required></textarea></label>
-        <label>Kết luận của bạn<textarea id="conclusion" minlength="20" maxlength="2000" rows="3" placeholder="Dữ liệu này vi phạm quy tắc nào, vì sao?" required></textarea></label>
-        <p class="section-note">Server xác minh bằng chứng và giá trị đối chiếu. Phần diễn giải được lưu để giáo viên xem; bản này không tự chấm ngữ nghĩa văn bản.</p>
         <button type="submit" class="primary" id="submit-report" disabled>Xác minh và nộp báo cáo ↗</button>
         <div id="report-feedback" role="status" aria-live="polite"></div>
       </form>
