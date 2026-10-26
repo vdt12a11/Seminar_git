@@ -22,6 +22,8 @@ Mở <http://127.0.0.1:8000/>. Nếu server bản demo đang chiếm cổng 8000
 
 Nút **Nạp lại dữ liệu mẫu** mở lượt thử mới và giữ điểm. Nếu muốn thử một ca nhiều bước (ví dụ tạo khách, tạo booking, thêm payment), chạy đủ từng câu trong editor rồi nộp đủ chuỗi trong form. Không được bỏ qua câu tạo dữ liệu nền.
 
+Nút **Thoát nhóm** giải phóng chỗ đang giữ và đưa trình duyệt về trang chọn nhóm. Nhóm được chọn sau đó bắt đầu phiên mới với dữ liệu và điểm riêng; tiến độ phiên cũ không chuyển sang nhóm mới.
+
 Chi tiết chấm, 12 dạng lỗi tự chấm và giới hạn: [SCORING.md](./SCORING.md). Đặc tả nguồn: [source/business-requirements.md](./source/business-requirements.md).
 
 ## Dashboard

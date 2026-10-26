@@ -173,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path not in ('/api/query', '/api/reports', '/api/reset', '/api/join', '/api/heartbeat', '/api/new-session',
+        if self.path not in ('/api/query', '/api/reports', '/api/reset', '/api/join', '/api/leave', '/api/heartbeat', '/api/new-session',
                              '/api/admin/login', '/api/admin/logout', '/api/admin/kick'):
             self.send_error(404)
             return
@@ -237,6 +237,17 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(403, {'error': 'Phiên này đã bị quản trị viên loại khỏi phòng chơi.'})
                     return
                 group = group_for(store, self.player)
+                if self.path == '/api/leave':
+                    if not group:
+                        self.send_json(409, {'error': 'Phiên này chưa tham gia nhóm.'})
+                        return
+                    store.execute('UPDATE groups SET active=0, player=NULL, last_seen=NULL WHERE number=? AND player=?',
+                                  (group['number'], self.player))
+                    store.execute('UPDATE players SET kicked=1 WHERE id=?', (self.player,))
+                    store.commit()
+                    self.clear_player_cookie = True
+                    self.send_json(200, {'message': 'Đã thoát nhóm. Hãy chọn nhóm cho phiên mới.'})
+                    return
                 if self.path == '/api/join':
                     number = payload.get('group')
                     if type(number) is not int or not 1 <= number <= 11:

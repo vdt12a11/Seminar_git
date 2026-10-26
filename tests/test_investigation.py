@@ -150,6 +150,27 @@ class HotelScoringTests(unittest.TestCase):
         p.sql(cancel); p.sql(existing_proof)
         self.assertEqual(p.report('BR-14',[cancel],existing_proof,1,500000)['verdict'],'needs_evidence')
 
+    def test_leave_releases_group_and_switch_starts_fresh_session(self):
+        p = Player(self.base)
+        old = p.call('/api/state')
+        mutation = "INSERT INTO Guest(email,full_name) VALUES ('bad','Test Guest');"
+        proof = 'SELECT guest_id,email FROM Guest WHERE guest_id=4;'
+        p.sql(mutation); p.sql(proof)
+        self.assertEqual(p.report('BR-01',[mutation],proof,4,'bad')['verdict'],'confirmed')
+        self.assertEqual(p.call('/api/state')['score'],100)
+        p.call('/api/leave',{})
+        lobby = p.call('/api/state')
+        self.assertTrue(lobby['needs_group'])
+        self.assertFalse(next(g for g in lobby['groups'] if g['number'] == old['group'])['active'])
+        p.call('/api/join',{'group':2})
+        fresh = p.call('/api/state')
+        self.assertEqual(fresh['group'],2)
+        self.assertNotEqual(fresh['session'],old['session'])
+        self.assertEqual(fresh['score'],0)
+        self.assertEqual(fresh['reports'],[])
+        self.assertEqual(fresh['history'],[])
+        self.assertEqual(Player(self.base).call('/api/state')['group'],old['group'])
+
 
 if __name__ == '__main__':
     unittest.main()

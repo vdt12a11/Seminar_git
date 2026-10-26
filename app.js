@@ -10,7 +10,7 @@ function updateLines() { $('#line-numbers').textContent = editor.value.split('\n
 editor.addEventListener('input', updateLines); updateLines();
 function setBusy(value) {
   busy = value;
-  ['#run-btn', '#submit-report', '#reset-data'].forEach(s => $(s).disabled = value || !state);
+  ['#run-btn', '#submit-report', '#reset-data', '#leave-group'].forEach(s => $(s).disabled = value || !state);
 }
 async function api(path, payload) {
   const response = await fetch(path, payload === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
@@ -53,6 +53,7 @@ try { localStorage.removeItem('query_room_group'); localStorage.removeItem('quer
 function enterGame(data) {
   state = data;
   $('#group-gate').hidden = true;
+  $('#leave-group').hidden = false;
   render();
   setBusy(false);
   $('#connection-status').textContent = '';
@@ -61,6 +62,7 @@ function showGate(data) {
   state = null;
   setBusy(false);
   $('#group-gate').hidden = false;
+  $('#leave-group').hidden = true;
   $('#group-form').hidden = !!data.kicked;
   $('#back-to-groups').hidden = !data.kicked;
   $('#gate-foot').hidden = !!data.kicked;
@@ -100,6 +102,22 @@ $('#back-to-groups').addEventListener('click', async () => {
     await refresh();
   } catch (error) { $('#gate-status').textContent = error.message; }
   finally { button.disabled = false; }
+});
+$('#leave-group').addEventListener('click', async () => {
+  if (busy || !state || !window.confirm('Thoát nhóm hiện tại và chọn nhóm khác? Dữ liệu, báo cáo và điểm của phiên này không chuyển sang nhóm mới.')) return;
+  setBusy(true);
+  try {
+    await api('/api/leave', {});
+    state = null;
+    editor.value = 'SELECT * FROM Guest;';
+    updateLines();
+    $('#report-form').reset();
+    $('#result-caption').textContent = 'Chưa có kết quả';
+    $('#result-body').innerHTML = '<div class="result-message">Đã thoát nhóm. Chọn nhóm khác để bắt đầu phiên mới.</div>';
+    $('#result-meta').textContent = 'PHIÊN MỚI';
+    await refresh();
+  } catch (error) { $('#connection-status').textContent = error.message; }
+  finally { setBusy(false); }
 });
 setInterval(async () => {
   if (!state) return;
