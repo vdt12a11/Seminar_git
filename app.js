@@ -144,16 +144,13 @@ $('#history-list').addEventListener('click', e => {
 $('#requirement').addEventListener('change', () => {
   $('#target-label').textContent = 'ID bản ghi hoặc booking';
   $('#observed-label').textContent = 'Giá trị quan sát';
-  $('#evidence-help').textContent = 'Nộp đủ thao tác ghi liên quan trực tiếp đến lỗi; có thể kèm lệnh ghi khác đã chạy trong cùng lượt. Thứ tự dán không quan trọng. SELECT phải lọc đúng bản ghi liên quan. Khi đối chiếu hai bản ghi cùng loại, có thể trả hai dòng với ID rõ ràng; trường hợp khác cần đủ dữ liệu cần so sánh trên cùng dòng.';
   if ($('#requirement').value === 'BR-09') {
     $('#target-label').textContent = 'ID booking mới';
     $('#observed-label').textContent = 'Số cột snapshot tìm thấy';
-    $('#evidence-help').textContent = 'Tạo một booking hợp lệ theo giá phòng hiện tại, sau đó đổi giá chính căn phòng đó. SELECT phải trả về booking, tổng tiền đã lưu, giá phòng hiện tại và số cột lưu đơn giá tại thời điểm đặt trong schema (dùng pragma_table_info). Nhập ID booking và số cột snapshot quan sát được.';
     $('#expected').querySelector('option[value="derive"]').textContent = 'Giữ đơn giá và tổng tiền đã áp dụng lúc đặt';
   } else if ($('#requirement').value === 'BR-06') {
     $('#target-label').textContent = 'ID booking (0 nếu bị từ chối)';
     $('#observed-label').textContent = 'Số dòng được lưu';
-    $('#evidence-help').textContent = 'Thử INSERT booking tham chiếu guest_id hoặc room_id không tồn tại. Nếu khóa ngoại từ chối lệnh, chạy SELECT theo booking_code để xác nhận không có dòng nào được lưu. BR-06 hiện được bảo vệ đúng nên báo cáo chỉ xác minh quy tắc, không cộng điểm bug.';
   } else {
     $('#expected').querySelector('option[value="derive"]').textContent = 'Tính và lưu giá trị đúng theo quy tắc';
   }
