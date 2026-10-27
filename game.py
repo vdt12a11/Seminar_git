@@ -379,25 +379,29 @@ def split_statements(value):
     return [s for s in statements if s]
 
 
+def _same_proof_value(actual, expected):
+    if actual == expected:
+        return True
+    try:
+        return money(actual) == money(expected)
+    except (ValueError, TypeError, ArithmeticError):
+        return False
+
+
+def _row_has_values(row, expected_values):
+    """Match values without requiring the player to guess SELECT aliases."""
+    remaining = list(row.values())
+    for expected in expected_values:
+        match = next((index for index, value in enumerate(remaining)
+                      if _same_proof_value(value, expected)), None)
+        if match is None:
+            return False
+        remaining.pop(match)
+    return True
+
+
 def proof_matches(key, record, rows, reads, target):
-    """Require concrete row values and underlying columns, not just a table read."""
-    fields = {
-        'invalid_email': ('guest_id', 'email'),
-        'duplicate_email': ('guest_id', 'email', 'other_id'),
-        'blank_name': ('guest_id', 'full_name'),
-        'invalid_room_type': ('room_id', 'room_type'),
-        'inactive_room': ('booking_id', 'room_id', 'active'),
-        'overlap': ('booking_id', 'room_id', 'check_in', 'check_out', 'other_id', 'other_check_in', 'other_check_out'),
-        'wrong_nights': ('booking_id', 'nights', 'actual_nights'),
-        'missing_price_snapshot': ('booking_id', 'total_amount', 'price_per_night', 'snapshot_column_count'),
-        'wrong_discount': ('booking_id', 'nights', 'discount_rate'),
-        'wrong_total': ('booking_id', 'nights', 'discount_rate', 'total_amount', 'price_per_night'),
-        'overpayment': ('booking_id', 'total_amount', 'paid_total'),
-        'wrong_status_direct': ('booking_id', 'total_amount', 'paid_total', 'status'),
-        'wrong_status_total': ('booking_id', 'total_amount', 'paid_total', 'status'),
-        'wrong_status_zero': ('booking_id', 'total_amount', 'paid_total', 'status'),
-        'cancelled_payment': ('payment_id', 'booking_id', 'amount', 'status'),
-    }[key]
+    """Require concrete row values and underlying columns, not fixed aliases."""
     needed_reads = {
         'invalid_email': {('Guest','guest_id'),('Guest','email')},
         'duplicate_email': {('Guest','guest_id'),('Guest','email')},
@@ -420,56 +424,56 @@ def proof_matches(key, record, rows, reads, target):
     }[key]
     if not needed_reads <= set(map(tuple, reads)):
         return False
-    if key == 'missing_price_snapshot':
-        for row in rows:
-            price = row.get('price_per_night', row.get('current_room_price'))
-            snapshot_count = row.get('snapshot_column_count', row.get('snapshot_price_columns'))
-            if (row.get('booking_id') == target and row.get('total_amount') == record['total_amount'] and
-                    price == record['price_per_night'] and snapshot_count == 0):
-                return True
-        return False
     if key == 'duplicate_email':
-        # Accept either a single joined row with other_id, or two rows that
-        # explicitly identify the reported guest and its matching counterpart.
+        # Accept one joined proof row or two explicitly identified guest rows.
+        joined_values = [target, record['email'], record['other_id']]
         for row in rows:
-            if ('guest_id' in row and 'email' in row and 'other_id' in row and
-                    row['guest_id'] == target and row['guest_id'] == record['guest_id'] and
-                    row['email'] == record['email'] and row['other_id'] == record['other_id']):
+            if _row_has_values(row, joined_values):
                 return True
-        if len(rows) != 2 or any(not {'guest_id', 'email'} <= set(row) for row in rows):
+        if len(rows) != 2:
             return False
-        by_id = {row['guest_id']: row for row in rows}
-        if len(by_id) != 2 or set(by_id) != {target, record['other_id']}:
-            return False
-        return (by_id[target]['email'] == record['email'] and
-                by_id[record['other_id']]['email'] == record['other_email'])
+        return (any(_row_has_values(row, [target, record['email']]) for row in rows) and
+                any(_row_has_values(row, [record['other_id'], record['other_email']]) for row in rows))
     if key == 'overlap':
-        # As with duplicate values, overlapping rows may be shown as one joined
-        # proof row or as the exact pair of booking rows with their IDs.
+        # Allow a joined row or the exact pair of booking rows, under any aliases.
+        joined_values = [target, record['room_id'], record['check_in'], record['check_out'],
+                         record['other_id'], record['other_check_in'], record['other_check_out']]
         for row in rows:
-            if (all(field in row for field in fields) and
-                    all(row[field] == record[field] for field in fields) and
-                    row['booking_id'] == target):
+            if _row_has_values(row, joined_values):
                 return True
-        pair_fields = {'booking_id', 'room_id', 'check_in', 'check_out'}
-        if len(rows) != 2 or any(not pair_fields <= set(row) for row in rows):
+        if len(rows) != 2:
             return False
-        by_id = {row['booking_id']: row for row in rows}
-        if len(by_id) != 2 or set(by_id) != {target, record['other_id']}:
-            return False
-        target_row, other_row = by_id[target], by_id[record['other_id']]
-        return (target_row['room_id'] == record['room_id'] and
-                target_row['check_in'] == record['check_in'] and
-                target_row['check_out'] == record['check_out'] and
-                other_row['room_id'] == record['room_id'] and
-                other_row['check_in'] == record['other_check_in'] and
-                other_row['check_out'] == record['other_check_out'])
+        target_values = [target, record['room_id'], record['check_in'], record['check_out']]
+        other_values = [record['other_id'], record['room_id'],
+                        record['other_check_in'], record['other_check_out']]
+        return (any(_row_has_values(row, target_values) for row in rows) and
+                any(_row_has_values(row, other_values) for row in rows))
+
+    expected_values = {
+        'invalid_email': [target, record['email']],
+        'blank_name': [target, record['full_name']],
+        'invalid_room_type': [target, record['room_type']],
+        'inactive_room': [target, record['room_id'], record['active']],
+        'wrong_nights': [target, record['nights']],
+        'missing_price_snapshot': [target, record['total_amount'], record['price_per_night'], 0],
+        'wrong_discount': [target, record['nights'], record['discount_rate']],
+        'wrong_total': [target, record['nights'], record['discount_rate'],
+                        record['total_amount'], record['price_per_night']],
+        'overpayment': [target, record['total_amount'], record['paid_total']],
+        'wrong_status_direct': [target, record['total_amount'], record['paid_total'], record['status']],
+        'wrong_status_total': [target, record['total_amount'], record['paid_total'], record['status']],
+        'wrong_status_zero': [target, record['total_amount'], record['paid_total'], record['status']],
+        'cancelled_payment': [target, record['booking_id'], record['amount'], record['status']],
+    }[key]
     for row in rows:
-        if not all(field in row for field in fields):
+        if not _row_has_values(row, expected_values):
             continue
-        if not all(row[field] == record[field] for field in fields):
-            continue
-        if row[fields[0]] == target:
+        if key != 'wrong_nights':
+            return True
+        # A player may return the calculated night count under any alias, or
+        # return both dates so the mismatch is visible without a derived column.
+        if (_row_has_values(row, [record['actual_nights']]) or
+                _row_has_values(row, [record['check_in'], record['check_out']])):
             return True
     return False
 
