@@ -400,7 +400,7 @@ def _row_has_values(row, expected_values):
     return True
 
 
-def proof_matches(key, record, rows, reads, target):
+def proof_matches(key, record, rows, reads, target, evidence_state=None):
     """Require concrete row values and underlying columns, not fixed aliases."""
     needed_reads = {
         'invalid_email': {('Guest','guest_id'),('Guest','email')},
@@ -408,7 +408,8 @@ def proof_matches(key, record, rows, reads, target):
         'blank_name': {('Guest','guest_id'),('Guest','full_name')},
         'invalid_room_type': {('Room','room_id'),('Room','room_type'),('RoomType','type_name')},
         'inactive_room': {('Booking','booking_id'),('Booking','room_id'),('Room','active')},
-        'overlap': {('Booking','booking_id'),('Booking','room_id'),('Booking','check_in'),('Booking','check_out')},
+        'overlap': {('Booking','booking_id'),('Booking','room_id'),('Booking','check_in'),
+                    ('Booking','check_out'),('Booking','status')},
         'wrong_nights': {('Booking','booking_id'),('Booking','nights'),('Booking','check_in'),('Booking','check_out')},
         'missing_price_snapshot': {('Booking','booking_id'),('Booking','total_amount'),
                                    ('Room','price_per_night'),('pragma_table_info','name')},
@@ -435,19 +436,30 @@ def proof_matches(key, record, rows, reads, target):
         return (any(_row_has_values(row, [target, record['email']]) for row in rows) and
                 any(_row_has_values(row, [record['other_id'], record['other_email']]) for row in rows))
     if key == 'overlap':
-        # Allow a joined row or the exact pair of booking rows, under any aliases.
-        joined_values = [target, record['room_id'], record['check_in'], record['check_out'],
-                         record['other_id'], record['other_check_in'], record['other_check_out']]
-        for row in rows:
-            if _row_has_values(row, joined_values):
-                return True
-        if len(rows) != 2:
+        # Accept any explicitly returned pair that overlaps the reported booking.
+        # Do not make players guess which peer the oracle happened to encounter first.
+        bookings = (evidence_state or {}).get('Booking', [])
+        target_booking = next((b for b in bookings if str(b['booking_id']) == str(target)), None)
+        if target_booking is None:
             return False
-        target_values = [target, record['room_id'], record['check_in'], record['check_out']]
-        other_values = [record['other_id'], record['room_id'],
-                        record['other_check_in'], record['other_check_out']]
-        return (any(_row_has_values(row, target_values) for row in rows) and
-                any(_row_has_values(row, other_values) for row in rows))
+
+        def row_shows_booking(booking):
+            values = [booking['booking_id'], booking['room_id'], booking['check_in'],
+                      booking['check_out'], booking['status']]
+            return any(_row_has_values(row, values) for row in rows)
+
+        if not row_shows_booking(target_booking):
+            return False
+        for other in bookings:
+            if (other['booking_id'] == target_booking['booking_id'] or
+                    other['room_id'] != target_booking['room_id'] or
+                    other['status'] == 'CANCELLED' or target_booking['status'] == 'CANCELLED' or
+                    not (target_booking['check_in'] < other['check_out'] and
+                         other['check_in'] < target_booking['check_out'])):
+                continue
+            if row_shows_booking(other):
+                return True
+        return False
 
     expected_value_builders = {
         'invalid_email': lambda: [target, record['email']],
@@ -545,7 +557,10 @@ def relevant_write_ids(key, target, record, writes_after_boundary):
     elif key == 'inactive_room':
         dependencies = {'Booking': {target}}
     elif key == 'overlap':
-        dependencies = {'Booking': {target, record['other_id']}}
+        # The reported booking's write is the causal action. The overlapping
+        # booking is context and can pre-exist or have been created earlier in
+        # the same round, so do not require its INSERT in the report as well.
+        dependencies = {'Booking': {target}}
     elif key in ('wrong_nights', 'wrong_discount'):
         dependencies = {'Booking': {target}}
     elif key == 'wrong_total':
@@ -694,7 +709,8 @@ def verify_report(store, player, round_no, payload, group_number):
                     previous_state = current_state
             if not appeared or not causal_step_valid(key, interval, target):
                 continue
-            if not proof_matches(key, record, rows, reads, target):
+            evidence_state = json.loads(evidence['after_state'])
+            if not proof_matches(key, record, rows, reads, target, evidence_state):
                 continue
             observed_field = {
                 'invalid_email':'email','duplicate_email':'email','blank_name':'full_name',
@@ -708,12 +724,17 @@ def verify_report(store, player, round_no, payload, group_number):
             observed = str(payload.get('observed','')).strip()
             actual_value = len(record['full_name'].strip()) if key == 'blank_name' else record[observed_field]
             try:
-                accepted_values = ([record['nights'], record['actual_nights']]
-                                   if key == 'wrong_nights' else [actual_value])
-                value_matches = any(
-                    observed == str(value).strip() or money(observed) == money(value)
-                    for value in accepted_values
-                )
+                if key == 'overlap':
+                    # The returned, verified booking pair is the evidence; the
+                    # generic observation field is not useful for this rule.
+                    value_matches = True
+                else:
+                    accepted_values = ([record['nights'], record['actual_nights']]
+                                       if key == 'wrong_nights' else [actual_value])
+                    value_matches = any(
+                        observed == str(value).strip() or money(observed) == money(value)
+                        for value in accepted_values
+                    )
             except (ValueError, TypeError, ArithmeticError):
                 value_matches = False
             if not value_matches:
