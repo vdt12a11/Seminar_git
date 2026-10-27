@@ -449,22 +449,23 @@ def proof_matches(key, record, rows, reads, target):
         return (any(_row_has_values(row, target_values) for row in rows) and
                 any(_row_has_values(row, other_values) for row in rows))
 
-    expected_values = {
-        'invalid_email': [target, record['email']],
-        'blank_name': [target, record['full_name']],
-        'invalid_room_type': [target, record['room_type']],
-        'inactive_room': [target, record['room_id'], record['active']],
-        'wrong_nights': [target, record['nights']],
-        'missing_price_snapshot': [target, record['total_amount'], record['price_per_night'], 0],
-        'wrong_discount': [target, record['nights'], record['discount_rate']],
-        'wrong_total': [target, record['nights'], record['discount_rate'],
-                        record['total_amount'], record['price_per_night']],
-        'overpayment': [target, record['total_amount'], record['paid_total']],
-        'wrong_status_direct': [target, record['total_amount'], record['paid_total'], record['status']],
-        'wrong_status_total': [target, record['total_amount'], record['paid_total'], record['status']],
-        'wrong_status_zero': [target, record['total_amount'], record['paid_total'], record['status']],
-        'cancelled_payment': [target, record['booking_id'], record['amount'], record['status']],
-    }[key]
+    expected_value_builders = {
+        'invalid_email': lambda: [target, record['email']],
+        'blank_name': lambda: [target, record['full_name']],
+        'invalid_room_type': lambda: [target, record['room_type']],
+        'inactive_room': lambda: [target, record['room_id'], record['active']],
+        'wrong_nights': lambda: [target, record['nights']],
+        'missing_price_snapshot': lambda: [target, record['total_amount'], record['price_per_night'], 0],
+        'wrong_discount': lambda: [target, record['nights'], record['discount_rate']],
+        'wrong_total': lambda: [target, record['nights'], record['discount_rate'],
+                                record['total_amount'], record['price_per_night']],
+        'overpayment': lambda: [target, record['total_amount'], record['paid_total']],
+        'wrong_status_direct': lambda: [target, record['total_amount'], record['paid_total'], record['status']],
+        'wrong_status_total': lambda: [target, record['total_amount'], record['paid_total'], record['status']],
+        'wrong_status_zero': lambda: [target, record['total_amount'], record['paid_total'], record['status']],
+        'cancelled_payment': lambda: [target, record['booking_id'], record['amount'], record['status']],
+    }
+    expected_values = expected_value_builders[key]()
     for row in rows:
         if not _row_has_values(row, expected_values):
             continue
