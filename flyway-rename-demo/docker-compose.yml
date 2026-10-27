@@ -1,0 +1,10 @@
+services:
+  flyway:
+    image: redgate/flyway:13.10.3
+    container_name: flyway-runner
+    volumes:
+      # Mount toàn bộ thư mục hiện tại (chứa flyway.toml, migrations/, demo_app.db) vào container
+      - .:/flyway/project
+    working_dir: /flyway/project
+    # Lệnh mặc định nếu chỉ gõ `docker compose up` hoặc `docker compose run --rm flyway`
+    command: info

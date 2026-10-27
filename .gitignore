@@ -6,3 +6,9 @@ data/admin-password.txt
 data/server-*.log
 __pycache__/
 *.py[cod]
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
