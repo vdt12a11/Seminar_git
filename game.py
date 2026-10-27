@@ -698,7 +698,7 @@ def verify_report(store, player, round_no, payload, group_number):
             observed_field = {
                 'invalid_email':'email','duplicate_email':'email','blank_name':'full_name',
                 'invalid_room_type':'room_type','inactive_room':'active','overlap':'other_id',
-                'wrong_nights':'actual_nights','wrong_discount':'discount_rate',
+                'wrong_nights':'nights','wrong_discount':'discount_rate',
                 'wrong_total':'total_amount','overpayment':'paid_total',
                 'missing_price_snapshot':'snapshot_column_count',
                 'wrong_status_direct':'status','wrong_status_total':'status',

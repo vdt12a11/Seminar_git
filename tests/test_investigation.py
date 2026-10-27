@@ -81,7 +81,7 @@ class HotelScoringTests(unittest.TestCase):
                         "INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-INACTIVE',4,3,'2026-11-10','2026-11-11',1,0,2200000);"],
              'SELECT b.booking_id,b.room_id,r.active FROM Booking b JOIN Room r ON r.room_id=b.room_id WHERE b.booking_id=3;',3,'0'),
             ('BR-07', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-NIGHTS',1,2,'2026-11-15','2026-11-17',3,0.1,4320000);"],
-             'SELECT booking_id,nights,CAST(julianday(check_out)-julianday(check_in) AS INTEGER) AS actual_nights FROM Booking WHERE booking_id=3;',3,'2'),
+             'SELECT booking_id,nights,CAST(julianday(check_out)-julianday(check_in) AS INTEGER) AS actual_nights FROM Booking WHERE booking_id=3;',3,'3'),
             ('BR-08', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount) VALUES ('B-OVERLAP',1,1,'2026-11-04','2026-11-06',2,0,2000000);"],
              'SELECT b.booking_id,b.room_id,b.check_in,b.check_out,o.booking_id AS other_id,o.check_in AS other_check_in,o.check_out AS other_check_out FROM Booking b JOIN Booking o ON b.room_id=o.room_id AND b.booking_id<>o.booking_id AND b.check_in<o.check_out AND o.check_in<b.check_out WHERE b.booking_id=3;',3,'1'),
             ('BR-09', ["INSERT INTO Booking(booking_code,guest_id,room_id,check_in,check_out,nights,discount_rate,total_amount,status) VALUES ('BR09-RESET-20261027',1,1,'2026-11-10','2026-11-12',2,0,2000000,'BOOKED');",
