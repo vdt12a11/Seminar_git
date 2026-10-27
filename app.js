@@ -142,7 +142,7 @@ $('#history-list').addEventListener('click', e => {
   if (view) { const h = state.history.find(h => h.id === Number(view.dataset.view)); showResult(h.result, h.id); $('#result-body').scrollIntoView({behavior:'smooth', block:'center'}); }
 });
 $('#requirement').addEventListener('change', () => {
-  $('#target-label').textContent = 'ID bản ghi hoặc booking';
+  $('#target-label').textContent = 'ID bản ghi';
   $('#observed-label').textContent = 'Giá trị quan sát';
   if ($('#requirement').value === 'BR-09') {
     $('#target-label').textContent = 'ID booking mới';
