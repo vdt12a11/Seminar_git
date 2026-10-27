@@ -707,10 +707,15 @@ def verify_report(store, player, round_no, payload, group_number):
             observed = str(payload.get('observed','')).strip()
             actual_value = len(record['full_name'].strip()) if key == 'blank_name' else record[observed_field]
             try:
-                numeric_match = money(observed) == money(actual_value)
+                accepted_values = ([record['nights'], record['actual_nights']]
+                                   if key == 'wrong_nights' else [actual_value])
+                value_matches = any(
+                    observed == str(value).strip() or money(observed) == money(value)
+                    for value in accepted_values
+                )
             except (ValueError, TypeError, ArithmeticError):
-                numeric_match = False
-            if not (observed == str(actual_value).strip() or numeric_match):
+                value_matches = False
+            if not value_matches:
                 continue
             if store.execute('SELECT 1 FROM group_discoveries WHERE group_number=? AND bug_key=?',
                              (group_number,key)).fetchone():

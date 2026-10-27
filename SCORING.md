@@ -25,7 +25,7 @@ Khi nâng cấp journal từ phiên bản trước, migration gắn báo cáo c�
 | BR-03 | Tên rỗng hoặc >100 ký tự sau `strip()` | `guest_id` / độ dài sau `strip()` nếu tên rỗng, hoặc chính tên dài |
 | BR-04 | `room_type` không tồn tại trong RoomType | `room_id` / room_type |
 | BR-05 | Booking tham chiếu Room không hoạt động | `booking_id` / `active` (0) |
-| BR-07 | `nights` khác hiệu hai ngày | `booking_id` / số đêm đang lưu trong booking |
+| BR-07 | `nights` khác hiệu hai ngày | `booking_id` / số đêm đang lưu hoặc số đêm tính từ ngày |
 | BR-08 | Booking giao khoảng ngày với booking khác cùng phòng, cả hai chưa huỷ | `booking_id` / ID booking còn lại |
 | BR-09 | Tạo booking hợp lệ theo giá phòng ban đầu, sau đó đổi giá phòng; schema không có cột snapshot nên không thể tra lại đơn giá áp dụng lúc đặt | `booking_id` / số cột snapshot tìm thấy (0) |
 | BR-10 | `discount_rate` sai chính sách theo nights | `booking_id` / discount_rate |

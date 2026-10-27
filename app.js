@@ -148,9 +148,6 @@ $('#requirement').addEventListener('change', () => {
     $('#target-label').textContent = 'ID booking mới';
     $('#observed-label').textContent = 'Số cột snapshot tìm thấy';
     $('#expected').querySelector('option[value="derive"]').textContent = 'Giữ đơn giá và tổng tiền đã áp dụng lúc đặt';
-  } else if ($('#requirement').value === 'BR-07') {
-    $('#target-label').textContent = 'ID booking';
-    $('#observed-label').textContent = 'Số đêm đang lưu';
   } else if ($('#requirement').value === 'BR-06') {
     $('#target-label').textContent = 'ID booking (0 nếu bị từ chối)';
     $('#observed-label').textContent = 'Số dòng được lưu';
